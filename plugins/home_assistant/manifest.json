@@ -1,0 +1,10 @@
+{
+  "id": "home_assistant",
+  "name": "Home Assistant",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true,
+  "depends_on": [],
+  "provides": ["home_assistant_webhook", "notifications"],
+  "description": "Send dashboard and HA events to Home Assistant via webhook"
+}
