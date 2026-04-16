@@ -1,0 +1,9 @@
+{
+  "id": "kea_ha",
+  "name": "Kea HA",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true,
+  "provides": ["ha_status"],
+  "description": "Kea High Availability monitoring"
+}
