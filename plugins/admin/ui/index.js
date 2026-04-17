@@ -48,6 +48,39 @@ async function renderPlugins(container) {
   }
 }
 
+async function renderMarketplace(container) {
+  container.innerHTML = `<h2>Marketplace</h2><div id="marketplace-list">Loading...</div>`;
+
+  try {
+    const res = await fetch('/api/marketplace/plugins');
+    const plugins = await res.json();
+    const list = document.getElementById('marketplace-list');
+
+    list.innerHTML = plugins.map(p => `
+      <div class="card">
+        <strong>${p.name}</strong>
+        <div>Version: ${p.version}</div>
+        <div>Status: ${p.installed ? 'Installed' : 'Not Installed'}</div>
+        ${p.installed
+          ? `<span class="status-ok">Installed</span>`
+          : `<button onclick="window.installPlugin('${p.id}')">Install</button>`}
+      </div>
+    `).join('');
+
+    window.installPlugin = async (plugin) => {
+      await fetch('/api/marketplace/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plugin })
+      });
+      renderMarketplace(container);
+    };
+  } catch (e) {
+    const list = document.getElementById('marketplace-list');
+    if (list) list.textContent = `Failed to load marketplace: ${e}`;
+  }
+}
+
 export function render(container) {
   container.innerHTML = `
     <h1>Admin Dashboard</h1>
@@ -55,6 +88,7 @@ export function render(container) {
       <button onclick="nav('health')">Health</button>
       <button onclick="nav('alerts')">Alerts</button>
       <button onclick="nav('plugins')">Plugins</button>
+      <button onclick="nav('marketplace')">Marketplace</button>
     </div>
     <div id="admin-content"></div>
   `;
@@ -64,6 +98,7 @@ export function render(container) {
     if (page === "health") renderHealth(el);
     if (page === "alerts") renderAlerts(el);
     if (page === "plugins") renderPlugins(el);
+    if (page === "marketplace") renderMarketplace(el);
   };
 
   window.nav("health");
