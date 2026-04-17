@@ -1,6 +1,7 @@
 from lib.plugin_api import DashboardPlugin, PluginEvent
 import json
 import time
+from .routes import register_routes
 
 
 class Plugin(DashboardPlugin):
@@ -9,6 +10,9 @@ class Plugin(DashboardPlugin):
         super().setup(context)
 
         self.events = []
+
+        # NEW: register health/alerts routes
+        register_routes(context)
 
         # API
         context.register_route("/api/plugins/admin/status", self.get_status)
@@ -29,9 +33,6 @@ class Plugin(DashboardPlugin):
 
         self.set_healthy("Admin ready")
 
-    # -----------------
-    # EVENT CAPTURE
-    # -----------------
     def capture_event(self, event: PluginEvent):
         self.events.append({
             "type": event.type,
@@ -42,9 +43,6 @@ class Plugin(DashboardPlugin):
 
         self.events = self.events[-100:]
 
-    # -----------------
-    # API
-    # -----------------
     def get_status(self, handler=None):
         pm = self.context.get_service("plugin_manager")
         return {
@@ -59,9 +57,6 @@ class Plugin(DashboardPlugin):
     def get_events(self, handler=None):
         return self.events
 
-    # -----------------
-    # SSE STREAM
-    # -----------------
     def stream_events(self, handler):
         handler.send_response(200)
         handler.send_header("Content-type", "text/event-stream")
@@ -83,9 +78,6 @@ class Plugin(DashboardPlugin):
         except Exception:
             return {"_plugin_handled": True}
 
-    # -----------------
-    # UI
-    # -----------------
     def render_card(self):
         return """
         <div>
