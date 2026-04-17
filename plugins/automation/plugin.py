@@ -1,23 +1,30 @@
 import time
 import subprocess
 import requests
-from lib.plugin_system import DashboardPlugin
+from lib.plugin_api import DashboardPlugin, PluginEvent
 
 
 class Plugin(DashboardPlugin):
-    def register(self, context):
-        self.context = context
+
+    def setup(self, context):
+        super().setup(context)
+
+        cfg = context.get_plugin_config("automation")
+
+        self.enabled = bool(cfg.get("enabled", context.config.get("automation_enabled", False)))
+        self.dry_run = bool(cfg.get("dry_run", context.config.get("automation_dry_run", True)))
+        self.cooldown = int(cfg.get("cooldown", context.config.get("automation_cooldown", 60)))
+        self.rules = cfg.get("rules", [])
+
         self.last_run = {}
 
-        cfg = context.config
-        self.enabled = bool(cfg.get("automation_enabled", False))
-        self.dry_run = bool(cfg.get("automation_dry_run", True))
-        self.cooldown = int(cfg.get("automation_cooldown", 60))
-        self.webhook = cfg.get("automation_webhook")
-        self.command = cfg.get("automation_command")
+        # Subscribe dynamically based on rules
+        for rule in self.rules:
+            event_type = rule.get("when")
+            if event_type:
+                context.subscribe(event_type, self._handle_event)
 
-        context.event_bus.subscribe("kea.ha.failover_detected", self.handle_failover)
-        context.event_bus.subscribe("kea.ha.partner_down", self.handle_partner_down)
+        self.set_healthy("Automation ready", rules=len(self.rules))
 
     def _cooldown_ok(self, key):
         now = time.time()
@@ -27,44 +34,51 @@ class Plugin(DashboardPlugin):
         self.last_run[key] = now
         return True
 
-    def handle_failover(self, data):
+    def _handle_event(self, event: PluginEvent):
         if not self.enabled:
             return
-        if not self._cooldown_ok("failover"):
-            return
-        self._execute("failover", data)
 
-    def handle_partner_down(self, data):
-        if not self.enabled:
-            return
-        if not self._cooldown_ok("partner_down"):
-            return
-        self._execute("partner_down", data)
+        for rule in self.rules:
+            if rule.get("when") != event.type:
+                continue
 
-    def _execute(self, event_type, data):
+            rule_id = rule.get("id", rule.get("when"))
+
+            if not self._cooldown_ok(rule_id):
+                continue
+
+            self._execute_rule(rule, event)
+
+    def _execute_rule(self, rule, event: PluginEvent):
+        action = rule.get("then")
         payload = {
-            "event": event_type,
-            "data": data
+            "event": event.type,
+            "data": event.payload
         }
 
         if self.dry_run:
-            self.context.logger.info(f"[DRY RUN] Would execute automation: {payload}")
+            self.context.logger.info(f"[DRY RUN] Rule {rule.get('id')} would execute {action} with {payload}")
             return
 
-        if self.webhook:
-            try:
-                requests.post(self.webhook, json=payload, timeout=3)
-            except Exception as e:
-                self.context.logger.warning(f"Webhook failed: {e}")
+        try:
+            if action == "webhook":
+                url = rule.get("url")
+                if url:
+                    requests.post(url, json=payload, timeout=3)
 
-        if self.command:
-            try:
-                subprocess.Popen(self.command, shell=True)
-            except Exception as e:
-                self.context.logger.warning(f"Command failed: {e}")
+            elif action == "command":
+                cmd = rule.get("command")
+                if cmd:
+                    subprocess.Popen(cmd, shell=True)
 
-    def start(self):
-        pass
+            elif action == "notify":
+                # delegate to HA plugin via event
+                self.context.emit("automation.notify", payload)
+
+            self.set_healthy("Rule executed", rule=rule.get("id"))
+
+        except Exception as exc:
+            self.set_degraded("Rule execution failed", error=str(exc), rule=rule.get("id"))
 
     def stop(self):
-        pass
+        super().stop()
