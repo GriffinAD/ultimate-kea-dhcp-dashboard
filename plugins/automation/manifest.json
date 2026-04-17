@@ -1,0 +1,9 @@
+{
+  "id": "automation",
+  "name": "Automation",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true,
+  "provides": ["automation", "remediation"],
+  "description": "Executes automation actions for HA failover and partner-down events"
+}
