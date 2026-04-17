@@ -1,12 +1,15 @@
 from copy import deepcopy
-from lib.plugin_system import DashboardPlugin
 import requests
+from lib.plugin_api import DashboardPlugin, PluginEvent
 
 
 class Plugin(DashboardPlugin):
-    def register(self, context):
-        self.context = context
+
+    def setup(self, context):
+        super().setup(context)
+
         self.previous_cluster_status = None
+        self.config = context.get_plugin_config("kea_ha")
         self.nodes = self._load_nodes()
 
         context.register_route(
@@ -21,6 +24,14 @@ class Plugin(DashboardPlugin):
             order=10
         )
 
+        scheduler = context.get_service("scheduler")
+        if scheduler:
+            scheduler.every(
+                "kea_ha_poll",
+                self.config.get("poll_interval", 5),
+                self.poll
+            )
+
     def render_card(self):
         status = self.get_status()
         active = status.get("active_node")
@@ -28,13 +39,20 @@ class Plugin(DashboardPlugin):
         return f"<div><strong>Active:</strong> {active}<br/><strong>Partner Down:</strong> {partner_down}</div>"
 
     def _load_nodes(self):
-        configured_nodes = self.context.config.get("kea_ha_nodes")
+        configured_nodes = self.config.get("nodes")
         if isinstance(configured_nodes, dict) and configured_nodes:
             return configured_nodes
 
         return {
             "kea1": "http://127.0.0.1:8000",
         }
+
+    def poll(self):
+        try:
+            cluster_status = self.get_status()
+            self.set_healthy("Polling OK", node_count=len(cluster_status.get("nodes", {})))
+        except Exception as exc:
+            self.set_degraded("Polling failed", error=str(exc))
 
     def _extract_ha_record(self, response_json):
         if isinstance(response_json, list) and response_json:
@@ -102,48 +120,52 @@ class Plugin(DashboardPlugin):
     def _emit_events(self, cluster_status):
         previous = self.previous_cluster_status
 
-        self.context.event_bus.publish(
-            "kea.ha.status",
-            deepcopy(cluster_status)
-        )
+        self.context.event_bus.emit(PluginEvent(
+            type="kea.ha.status",
+            source="kea_ha",
+            payload=deepcopy(cluster_status)
+        ))
 
         if previous is None:
             self.previous_cluster_status = deepcopy(cluster_status)
             return
 
         if previous != cluster_status:
-            self.context.event_bus.publish(
-                "kea.ha.state_changed",
-                {
+            self.context.event_bus.emit(PluginEvent(
+                type="kea.ha.state_changed",
+                source="kea_ha",
+                payload={
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                },
-            )
+                }
+            ))
 
         previous_active = previous.get("active_node")
         current_active = cluster_status.get("active_node")
         if previous_active != current_active:
-            self.context.event_bus.publish(
-                "kea.ha.failover_detected",
-                {
+            self.context.event_bus.emit(PluginEvent(
+                type="kea.ha.failover_detected",
+                source="kea_ha",
+                payload={
                     "from": previous_active,
                     "to": current_active,
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                },
-            )
+                }
+            ))
 
         previous_partner_down = set(previous.get("partner_down_nodes", []))
         current_partner_down = set(cluster_status.get("partner_down_nodes", []))
         if current_partner_down and current_partner_down != previous_partner_down:
-            self.context.event_bus.publish(
-                "kea.ha.partner_down",
-                {
+            self.context.event_bus.emit(PluginEvent(
+                type="kea.ha.partner_down",
+                source="kea_ha",
+                payload={
                     "nodes": sorted(current_partner_down),
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                },
-            )
+                }
+            ))
 
         self.previous_cluster_status = deepcopy(cluster_status)
 
@@ -175,8 +197,8 @@ class Plugin(DashboardPlugin):
         self._emit_events(cluster_status)
         return cluster_status
 
-    def start(self):
-        pass
-
     def stop(self):
-        pass
+        scheduler = self.context.get_service("scheduler")
+        if scheduler:
+            scheduler.cancel("kea_ha_poll")
+        super().stop()
