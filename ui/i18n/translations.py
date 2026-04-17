@@ -6,8 +6,8 @@ Multi-language support (French, English, Spanish, German, Thai)
 import json
 from pathlib import Path
 
-# Load translations from JSON file
-SCRIPT_DIR = Path(__file__).parent.parent.absolute()
+# Load translations from JSON file (resolve repo root: ui/i18n/ -> ui -> repo)
+SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
 TRANSLATIONS_FILE = SCRIPT_DIR / 'data' / 'translations.json'
 
 # Load translations

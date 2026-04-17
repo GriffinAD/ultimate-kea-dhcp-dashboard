@@ -1,4 +1,4 @@
-from lib.plugin_api import DashboardPlugin
+from core.plugin_api import DashboardPlugin
 import json
 from pathlib import Path
 from .actions import webhook_action

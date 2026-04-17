@@ -62,13 +62,16 @@ Ou copier manuellement les fichiers :
 
 ```bash
 # Créer les répertoires
-sudo mkdir -p /opt/ukd/{bin,lib,static,data,logs,etc}
+sudo mkdir -p /opt/ukd/{bin,core,server,ui,assets,plugins,data,logs,etc}
 sudo mkdir -p /etc/ultimate-dashboard
 
 # Copier les fichiers
 sudo cp -r bin/* /opt/ukd/bin/
-sudo cp -r lib/* /opt/ukd/lib/
-sudo cp -r static/* /opt/ukd/static/
+sudo cp -r core/* /opt/ukd/core/
+sudo cp -r server/* /opt/ukd/server/
+sudo cp -r ui/* /opt/ukd/ui/
+sudo cp -r assets/* /opt/ukd/assets/ 2>/dev/null || true
+sudo cp -r plugins/* /opt/ukd/plugins/ 2>/dev/null || true
 sudo cp -r data/* /opt/ukd/data/
 sudo cp start.sh /opt/ukd/
 

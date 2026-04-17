@@ -6,8 +6,8 @@ Allows users to define custom devices with personalized icons
 import json
 from pathlib import Path
 
-# Default config path
-SCRIPT_DIR = Path(__file__).parent.parent.absolute()
+# Default config path (resolve repo root: server/discovery/ -> server -> repo)
+SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
 CUSTOM_DEVICES_FILE = SCRIPT_DIR / 'etc' / 'custom-devices.json'
 
 # In-memory cache

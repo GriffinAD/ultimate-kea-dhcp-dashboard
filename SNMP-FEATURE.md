@@ -41,9 +41,9 @@ SNMP information is displayed in the dashboard under the "Scan Status" column fo
 ### Implementation Details
 
 **Files Modified:**
-- `lib/network_scanner.py`: Added `get_snmp_system_info()` function
-- `bin/ultimate-dashboard`: Integrated SNMP display in static devices table
-- `lib/config.py`: Support for `snmp_communities` list
+- `server/discovery/network_scanner.py`: Added `get_snmp_system_info()` function
+- `bin/ultimate-kea-dashboard`: Integrated SNMP display in static devices table
+- `server/config.py`: Support for `snmp_communities` list
 - `data/translations.json`: Added SNMP-related translations (all 5 languages)
 - `etc/ultimate-dashboard.conf.example`: Updated example configuration
 
@@ -56,7 +56,7 @@ SNMP information is displayed in the dashboard under the "Scan Status" column fo
 ### Usage Example
 
 ```python
-from network_scanner import get_snmp_system_info
+from server.discovery.network_scanner import get_snmp_system_info
 
 info = get_snmp_system_info('10.0.0.1', ['public', 'home'], timeout=1)
 if info and info.get('available'):

@@ -6,7 +6,7 @@ class SecurityManager:
     def __init__(self, root_dir, config=None):
         self.root_dir = Path(root_dir)
         self.config = config or {}
-        self.trusted_plugins_path = self.root_dir / "core" / "trusted_plugins.json"
+        self.trusted_plugins_path = self.root_dir / "core" / "registry" / "trusted_plugins.json"
         self.trusted_plugins = self._load_trusted_plugins()
 
     def _load_trusted_plugins(self):

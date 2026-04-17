@@ -237,34 +237,51 @@ configure_dashboard() {
     echo
     SSL_ENABLED=${SSL_ENABLED:-Y}
     if [[ $SSL_ENABLED =~ ^[Yy]$ ]]; then
-        SSL_ENABLED="true"
+        USE_SSL="true"
         read -p "$(echo -e ${CYAN}"SSL certificate path [$DEFAULT_SSL_CERT]: "${NC})" SSL_CERT
         SSL_CERT=${SSL_CERT:-$DEFAULT_SSL_CERT}
         
         read -p "$(echo -e ${CYAN}"SSL key path [$DEFAULT_SSL_KEY]: "${NC})" SSL_KEY
         SSL_KEY=${SSL_KEY:-$DEFAULT_SSL_KEY}
     else
-        SSL_ENABLED="false"
+        USE_SSL="false"
         SSL_CERT="$DEFAULT_SSL_CERT"
         SSL_KEY="$DEFAULT_SSL_KEY"
     fi
     
     # Kea configuration
-    read -p "$(echo -e ${CYAN}"Kea config path [/etc/kea/kea-dhcp4.conf]: "${NC})" KEA_CONFIG
-    KEA_CONFIG=${KEA_CONFIG:-/etc/kea/kea-dhcp4.conf}
+    read -p "$(echo -e ${CYAN}"Kea control socket path [/run/kea/kea4-ctrl-socket]: "${NC})" KEA_SOCKET
+    KEA_SOCKET=${KEA_SOCKET:-/run/kea/kea4-ctrl-socket}
     
     read -p "$(echo -e ${CYAN}"Kea leases path [/var/lib/kea/kea-leases4.csv]: "${NC})" KEA_LEASES
     KEA_LEASES=${KEA_LEASES:-/var/lib/kea/kea-leases4.csv}
     
     # Network configuration
-    read -p "$(echo -e ${CYAN}"Network subnet [192.168.1.0/24]: "${NC})" SUBNET
-    SUBNET=${SUBNET:-192.168.1.0/24}
+    read -p "$(echo -e ${CYAN}"Bind address [all interfaces]: "${NC})" BIND_ADDRESS
+    BIND_ADDRESS=${BIND_ADDRESS:-}
     
-    read -p "$(echo -e ${CYAN}"DHCP range start [192.168.1.100]: "${NC})" DHCP_START
-    DHCP_START=${DHCP_START:-192.168.1.100}
+    # Scanner configuration
+    read -p "$(echo -e ${CYAN}"Enable network scanner? (Y/n): "${NC})" -n 1 SCANNER_ENABLED
+    echo
+    SCANNER_ENABLED=${SCANNER_ENABLED:-Y}
+    if [[ $SCANNER_ENABLED =~ ^[Nn]$ ]]; then
+        ENABLE_SCANNER="false"
+    else
+        ENABLE_SCANNER="true"
+    fi
     
-    read -p "$(echo -e ${CYAN}"DHCP range end [192.168.1.200]: "${NC})" DHCP_END
-    DHCP_END=${DHCP_END:-192.168.1.200}
+    # SNMP configuration
+    read -p "$(echo -e ${CYAN}"Enable SNMP enrichment? (y/N): "${NC})" -n 1 SNMP_ENABLED
+    echo
+    SNMP_ENABLED=${SNMP_ENABLED:-N}
+    if [[ $SNMP_ENABLED =~ ^[Yy]$ ]]; then
+        ENABLE_SNMP="true"
+        read -p "$(echo -e ${CYAN}"SNMP communities [public]: "${NC})" SNMP_COMMUNITIES
+        SNMP_COMMUNITIES=${SNMP_COMMUNITIES:-public}
+    else
+        ENABLE_SNMP="false"
+        SNMP_COMMUNITIES="public"
+    fi
     
     # Language
     echo -e "\n${BOLD}Select language:${NC}"
@@ -286,18 +303,28 @@ install_files() {
     
     # Create directories
     print_info "Creating directories..."
-    mkdir -p "$INSTALL_DIR"/{bin,lib,static/{css,js},data,logs,etc}
+    mkdir -p "$INSTALL_DIR"/{bin,core,server,ui,assets,plugins,data,logs,etc}
     mkdir -p "$CONFIG_DIR"
-    
+
     # Copy files
     print_info "Copying application files..."
     cp -r bin/* "$INSTALL_DIR/bin/"
-    cp -r lib/* "$INSTALL_DIR/lib/"
-    cp -r static/* "$INSTALL_DIR/static/"
+    cp -r core/* "$INSTALL_DIR/core/"
+    cp -r server/* "$INSTALL_DIR/server/"
+    cp -r ui/* "$INSTALL_DIR/ui/"
+    if [[ -d assets ]]; then
+        cp -r assets/* "$INSTALL_DIR/assets/"
+    fi
+    if [[ -d plugins ]]; then
+        cp -r plugins/* "$INSTALL_DIR/plugins/"
+    fi
     cp -r data/* "$INSTALL_DIR/data/"
     cp start.sh "$INSTALL_DIR/"
-    
+
     chmod +x "$INSTALL_DIR/bin/ultimate-kea-dashboard"
+    if [[ -f "$INSTALL_DIR/bin/ultimate-kea-dashboard-plugin" ]]; then
+        chmod +x "$INSTALL_DIR/bin/ultimate-kea-dashboard-plugin"
+    fi
     chmod +x "$INSTALL_DIR/start.sh"
     
     print_success "Files installed to $INSTALL_DIR"
@@ -311,26 +338,23 @@ create_config() {
 [DEFAULT]
 # Dashboard server configuration
 port = $PORT
-ssl_enabled = $SSL_ENABLED
-ssl_cert = $SSL_CERT
-ssl_key = $SSL_KEY
+use_ssl = $USE_SSL
+cert_file = $SSL_CERT
+key_file = $SSL_KEY
+bind_address = $BIND_ADDRESS
 
 # Kea DHCP configuration
-kea_config = $KEA_CONFIG
-kea_leases = $KEA_LEASES
+kea_socket = $KEA_SOCKET
+leases_file = $KEA_LEASES
 
-# Network configuration
-subnet = $SUBNET
-dhcp_range_start = $DHCP_START
-dhcp_range_end = $DHCP_END
-
-# Scanning configuration
+# Scanner configuration
+enable_scanner = $ENABLE_SCANNER
+scanner_timeout = 5
 scan_threads = 50
-scan_timeout = 0.5
 
-# SNMP configuration (optional)
-snmp_community = public
-snmp_enabled = false
+# SNMP configuration
+enable_snmp = $ENABLE_SNMP
+snmp_communities = $SNMP_COMMUNITIES
 
 # Language
 language = $LANGUAGE
@@ -357,7 +381,7 @@ After=network.target kea-dhcp4.service
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/bin/python3 $INSTALL_DIR/bin/ultimate-kea-dashboard
+ExecStart=$INSTALL_DIR/bin/ultimate-kea-dashboard
 Restart=always
 RestartSec=10
 
@@ -400,7 +424,7 @@ print_completion() {
     echo -e "${NC}"
     
     echo -e "${BOLD}Access your dashboard at:${NC}"
-    if [[ $SSL_ENABLED == "true" ]]; then
+    if [[ $USE_SSL == "true" ]]; then
         echo -e "  ${CYAN}https://$(hostname -I | awk '{print $1}'):$PORT${NC}"
     else
         echo -e "  ${CYAN}http://$(hostname -I | awk '{print $1}'):$PORT${NC}"

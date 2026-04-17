@@ -1,4 +1,4 @@
-from lib.plugin_system import DashboardPlugin
+from core.plugin_system import DashboardPlugin
 import time
 
 class Plugin(DashboardPlugin):

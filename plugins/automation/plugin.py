@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from lib.plugin_api import DashboardPlugin, PluginEvent
+from core.plugin_api import DashboardPlugin, PluginEvent
 
 
 class Plugin(DashboardPlugin):

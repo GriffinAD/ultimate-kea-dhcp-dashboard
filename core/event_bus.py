@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import Callable
-from lib.plugin_api import PluginEvent
+from core.plugin_api import PluginEvent
 
 
 class EventBus:

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import time
 
 import requests
-from lib.plugin_api import DashboardPlugin, PluginEvent
+from core.plugin_api import DashboardPlugin, PluginEvent
 
 
 class Plugin(DashboardPlugin):
