@@ -4,7 +4,6 @@ import json
 import logging
 import runpy
 import threading
-import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,8 +19,6 @@ class PluginRuntime:
         self.namespace = runpy.run_path(str(self.script_path), run_name="ukd_base")
         self.root_dir = self.script_path.parent.parent
         self.plugin_manager = None
-        self.plugin_poll_thread = None
-        self.plugin_poll_running = False
 
     def _render_plugin_cards_html(self) -> str:
         if not self.plugin_manager:
@@ -114,32 +111,6 @@ class PluginRuntime:
         original_handler_class.do_GET = patched_do_get
         self.namespace["KeaHandler"] = original_handler_class
 
-    def _plugin_polling_loop(self) -> None:
-        config = self.namespace["config"]
-        interval = int(config.get("plugin_poll_interval", 5))
-
-        while self.plugin_poll_running:
-            try:
-                if self.plugin_manager:
-                    kea_ha = self.plugin_manager.context.get_service("kea_ha")
-                    if kea_ha:
-                        kea_ha.get_status()
-            except Exception as exc:
-                LOGGER.warning("Plugin polling error: %s", exc)
-            time.sleep(interval)
-
-    def _start_plugin_polling(self) -> None:
-        self.plugin_poll_running = True
-        self.plugin_poll_thread = threading.Thread(
-            target=self._plugin_polling_loop,
-            daemon=True,
-            name="ukd-plugin-poll",
-        )
-        self.plugin_poll_thread.start()
-
-    def _stop_plugin_polling(self) -> None:
-        self.plugin_poll_running = False
-
     def initialize_plugins(self) -> None:
         config = self.namespace["config"]
         self.plugin_manager = PluginManager(root_dir=self.root_dir, config=config)
@@ -167,11 +138,8 @@ class PluginRuntime:
             scan_thread.start()
             self.namespace["SCAN_THREAD"] = scan_thread
 
-        self._start_plugin_polling()
-
         try:
             run_server()
         finally:
-            self._stop_plugin_polling()
             if self.plugin_manager:
                 self.plugin_manager.stop_all()
