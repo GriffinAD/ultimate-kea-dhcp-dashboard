@@ -22,6 +22,7 @@ class DashboardCard:
     title: str
     order: int = 100
     render: Optional[Callable[[], str]] = None
+    plugin_id: Optional[str] = None
 
 
 @dataclass
@@ -29,6 +30,7 @@ class RouteRegistration:
     path: str
     methods: Iterable[str]
     handler: Callable[..., Any]
+    plugin_id: Optional[str] = None
 
 
 @dataclass
@@ -63,33 +65,68 @@ class PluginContext:
         self.event_bus = event_bus
         self.logger = logging.getLogger("ukd.plugins")
         self.services: Dict[str, Any] = {}
+        self.service_owners: Dict[str, str] = {}
         self.routes: List[RouteRegistration] = []
         self.cards: List[DashboardCard] = []
+        self._current_plugin: Optional[str] = None
 
     @property
     def config(self) -> dict:
         return self._root_config
+
+    def set_current_plugin(self, plugin_id: Optional[str]) -> None:
+        self._current_plugin = plugin_id
 
     def get_plugin_config(self, plugin_id: str) -> dict:
         return self._root_config.get("plugins", {}).get(plugin_id, {})
 
     def register_service(self, name: str, service: Any) -> None:
         self.services[name] = service
+        if self._current_plugin:
+            self.service_owners[name] = self._current_plugin
 
     def get_service(self, name: str, default: Any = None) -> Any:
         return self.services.get(name, default)
 
+    def unregister_services_by_owner(self, plugin_id: str) -> None:
+        owned = [name for name, owner in self.service_owners.items() if owner == plugin_id]
+        for name in owned:
+            self.services.pop(name, None)
+            self.service_owners.pop(name, None)
+
     def register_route(self, path: str, handler: Callable[..., Any], methods=None) -> None:
-        self.routes.append(RouteRegistration(path=path, methods=list(methods or ["GET"]), handler=handler))
+        self.routes.append(
+            RouteRegistration(
+                path=path,
+                methods=list(methods or ["GET"]),
+                handler=handler,
+                plugin_id=self._current_plugin,
+            )
+        )
 
     def register_dashboard_card(self, card_id: str, title: str, render=None, order: int = 100) -> None:
-        self.cards.append(DashboardCard(id=card_id, title=title, render=render, order=order))
+        self.cards.append(
+            DashboardCard(
+                id=card_id,
+                title=title,
+                render=render,
+                order=order,
+                plugin_id=self._current_plugin,
+            )
+        )
 
     def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
-        self.event_bus.subscribe(event_type, handler)
+        self.event_bus.subscribe(event_type, handler, owner=self._current_plugin)
 
     def emit(self, event_type: str, payload: dict | None = None, severity: str = "info") -> None:
-        self.event_bus.emit(PluginEvent(type=event_type, source="system", payload=payload or {}, severity=severity))
+        self.event_bus.emit(
+            PluginEvent(
+                type=event_type,
+                source=self._current_plugin or "system",
+                payload=payload or {},
+                severity=severity,
+            )
+        )
 
 
 class PluginManager:
@@ -132,15 +169,18 @@ class PluginManager:
                 plugin = cls()
                 plugin.manifest = manifest
 
+                self.context.set_current_plugin(pid)
                 if hasattr(plugin, "setup"):
                     plugin.setup(self.context)
                 else:
                     plugin.register(self.context)
+                self.context.set_current_plugin(None)
 
                 self.plugins[pid] = plugin
                 self.context.register_service(pid, plugin)
                 self.logger.info("Loaded %s", pid)
             except Exception:
+                self.context.set_current_plugin(None)
                 self.logger.exception("Failed plugin %s", pid)
 
     def start_all(self):
@@ -157,6 +197,23 @@ class PluginManager:
                 plugin.stop()
             except Exception:
                 self.logger.exception("Stop failed %s", pid)
+
+    def unload_plugin(self, plugin_id: str) -> bool:
+        plugin = self.plugins.get(plugin_id)
+        if not plugin:
+            return False
+
+        try:
+            plugin.stop()
+        except Exception:
+            self.logger.exception("Stop failed %s", plugin_id)
+
+        self.context.routes = [r for r in self.context.routes if r.plugin_id != plugin_id]
+        self.context.cards = [c for c in self.context.cards if c.plugin_id != plugin_id]
+        self.context.unregister_services_by_owner(plugin_id)
+        self.event_bus.unsubscribe_owner(plugin_id)
+        self.plugins.pop(plugin_id, None)
+        return True
 
     def get_registered_routes(self):
         return list(self.context.routes)
