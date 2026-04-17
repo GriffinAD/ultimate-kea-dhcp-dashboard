@@ -26,18 +26,50 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
-        p = pm.plugins.get(pid) if pm else None
-        if p:
-            try:
-                p.stop(); p.start()
-                return {"status": "restarted"}
-            except Exception as e:
-                return {"error": str(e)}
+        if pm:
+            pm.restart_plugin(pid)
+            return {"status": "restarted"}
         return {"error": "not found"}
 
     context.register_route(
         "/api/admin/plugins/restart",
         restart_plugin,
+        methods=["POST"]
+    )
+
+    def enable_plugin(handler):
+        import json
+        length = int(handler.headers.get('Content-Length', 0))
+        data = json.loads(handler.rfile.read(length))
+        pid = data.get("plugin")
+
+        pm = context.get_service("plugin_manager")
+        if pm:
+            pm.enable_plugin(pid)
+            return {"status": "enabled"}
+        return {"error": "not found"}
+
+    context.register_route(
+        "/api/admin/plugins/enable",
+        enable_plugin,
+        methods=["POST"]
+    )
+
+    def disable_plugin(handler):
+        import json
+        length = int(handler.headers.get('Content-Length', 0))
+        data = json.loads(handler.rfile.read(length))
+        pid = data.get("plugin")
+
+        pm = context.get_service("plugin_manager")
+        if pm:
+            pm.disable_plugin(pid)
+            return {"status": "disabled"}
+        return {"error": "not found"}
+
+    context.register_route(
+        "/api/admin/plugins/disable",
+        disable_plugin,
         methods=["POST"]
     )
 
@@ -49,7 +81,8 @@ def register_routes(context):
         known = {
             "admin": {"route": "/admin", "title": "Admin"},
             "automation_engine": {"route": "/automation", "title": "Automation"},
-            "kea_ha": {"route": "/kea", "title": "Kea HA"}
+            "kea_ha": {"route": "/kea", "title": "Kea HA"},
+            "home_assistant": {"route": "/home-assistant", "title": "Home Assistant"}
         }
 
         return [
