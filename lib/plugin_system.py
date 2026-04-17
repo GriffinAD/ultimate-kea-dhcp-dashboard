@@ -131,6 +131,7 @@ class PluginManager:
         self.context.register_service("scheduler", self.scheduler)
         self.manifests: Dict[str, PluginManifest] = {}
         self.plugins: Dict[str, Any] = {}
+        self.blocked: Dict[str, str] = {}
         self.logger = logging.getLogger("ukd.plugins")
         self.state_file = self.plugins_dir / ".state.json"
         self.plugin_state = self._load_state()
@@ -156,6 +157,21 @@ class PluginManager:
         self.manifests = manifests
         return manifests
 
+    def _is_allowed(self, pid: str, manifest: PluginManifest):
+        trust = self.context.security.get_trust_level(pid, manifest)
+        caps = manifest.capabilities or {}
+
+        if trust == "local" and caps.get("network_outbound"):
+            return False, "untrusted plugin with outbound network"
+        if trust != "core" and caps.get("marketplace_install"):
+            return False, "only core plugins can install plugins"
+        if trust not in ["trusted", "core"] and caps.get("plugin_control"):
+            return False, "insufficient trust for plugin control"
+        if trust != "core" and caps.get("destructive"):
+            return False, "destructive capability requires core trust"
+
+        return True, None
+
     def _load_module(self, manifest: PluginManifest):
         module_path, _, class_name = manifest.entrypoint.partition(":")
         file_path = self.plugins_dir / manifest.id / f"{module_path}.py"
@@ -167,6 +183,13 @@ class PluginManager:
     def _load_single_plugin(self, pid: str, manifest: PluginManifest) -> bool:
         if pid in self.plugins:
             return True
+
+        allowed, reason = self._is_allowed(pid, manifest)
+        if not allowed:
+            self.blocked[pid] = reason
+            self.logger.warning("Blocked plugin %s: %s", pid, reason)
+            return False
+
         try:
             cls = self._load_module(manifest)
             plugin = cls()
@@ -185,6 +208,7 @@ class PluginManager:
                 plugin.start()
             except Exception:
                 self.logger.exception("Start failed %s", pid)
+            self.blocked.pop(pid, None)
             self.logger.info("Loaded %s", pid)
             return True
         except Exception:
@@ -284,6 +308,7 @@ class PluginManager:
                 "provides": manifest.provides,
                 "trust": self.context.security.get_trust_level(manifest.id, manifest),
                 "capabilities": manifest.capabilities,
+                "blocked": self.blocked.get(manifest.id),
                 "health": health,
             })
         return descriptions
