@@ -1,0 +1,7 @@
+{
+  "id": "automation_engine",
+  "name": "Automation Engine",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true
+}
