@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from plugin_system import PluginManager
+from lib.plugin_health import PluginHealth
+from lib.alerts import Alerts
 
 
 LOGGER = logging.getLogger("ukd.plugin_runtime")
@@ -51,7 +53,7 @@ class PluginRuntime:
             html = original_generate_html(info, lang)
             cards_html = runtime._render_plugin_cards_html()
             marker = "\n            <h2>{t['dhcp_pools']}"
-            replacement = f"\n            {cards_html}\n            <h2>{{t['dhcp_pools']}}"
+            replacement = f"\n            {cards_html}\n            <h2{{t['dhcp_pools']}}"
             if cards_html and marker in html:
                 html = html.replace(marker, replacement, 1)
             return html
@@ -70,10 +72,14 @@ class PluginRuntime:
 
             try:
                 result = route.handler(handler)
+                self.plugin_manager.health.set(route.plugin_id, "healthy")
             except TypeError:
                 result = route.handler()
+                self.plugin_manager.health.set(route.plugin_id, "healthy")
             except Exception as exc:
                 LOGGER.exception("Plugin route failed for %s", route.path)
+                self.plugin_manager.health.set(route.plugin_id, "unhealthy", str(exc))
+                self.plugin_manager.alerts.push("critical", f"{route.plugin_id} failed", route.plugin_id)
                 handler.send_response(500)
                 handler.send_header("Content-type", "application/json; charset=utf-8")
                 handler.end_headers()
@@ -127,6 +133,11 @@ class PluginRuntime:
         self.plugin_manager.discover()
         self.plugin_manager.load_enabled_plugins()
         self.plugin_manager.context.register_service("plugin_manager", self.plugin_manager)
+
+        # NEW: attach health + alerts
+        self.plugin_manager.health = PluginHealth()
+        self.plugin_manager.alerts = Alerts()
+
         self.plugin_manager.start_all()
         self.namespace["plugin_manager"] = self.plugin_manager
 
