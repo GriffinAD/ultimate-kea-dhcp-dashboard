@@ -14,6 +14,9 @@ async function renderPlugins(container) {
         <strong>${p.id}</strong>
         <div>Status: ${p.enabled ? 'Enabled' : 'Disabled'}</div>
         <button onclick="window.restartPlugin('${p.id}')">Restart</button>
+        <button onclick="window.togglePlugin('${p.id}', ${p.configured_enabled})">
+          ${p.configured_enabled ? 'Disable' : 'Enable'}
+        </button>
       </div>
     `).join('');
 
@@ -23,6 +26,20 @@ async function renderPlugins(container) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plugin })
       });
+      renderPlugins(container);
+    };
+
+    window.togglePlugin = async (plugin, enabled) => {
+      const url = enabled
+        ? '/api/admin/plugins/disable'
+        : '/api/admin/plugins/enable';
+
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plugin })
+      });
+
       renderPlugins(container);
     };
   } catch (e) {
