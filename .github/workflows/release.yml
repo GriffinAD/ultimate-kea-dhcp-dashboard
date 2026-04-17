@@ -1,10 +1,9 @@
-name: Create Release
+name: Full Release Pipeline
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,33 +11,55 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Generate installer
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
         run: |
-          chmod +x create-installer.sh
-          ./create-installer.sh
-      
-      - name: Get version
-        id: get_version
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev debhelper rpm zstd rsync gnupg
+
+      - name: Import GPG key
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=v$(cat VERSION)" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Set GPG trust
+        run: |
+          KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec' | cut -d: -f5 | head -n1)
+          echo "Using key $KEY_ID"
+          echo "KEY_ID=$KEY_ID" >> $GITHUB_ENV
+
+      - name: Make scripts executable
+        run: chmod +x packaging/*.sh
+
+      - name: Build + sign release
+        run: |
+          ./packaging/release.sh --sign
+
+      - name: Publish repositories
+        run: |
+          mkdir -p /tmp/repos
+          ./packaging/publish-all.sh /tmp/repos $KEY_ID
+
+      - name: Deploy to host
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+          rsync -avz --delete /tmp/repos/ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          name: Release ${{ steps.get_version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           files: |
-            ultimate-kea-dashboard-installer.sh
-            install.sh
-            README.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            packaging/*.deb
+            packaging/*.rpm
+            packaging/*.pkg.tar.zst
+            packaging/*.sha256
+            packaging/*.asc
+            packaging/RELEASE_NOTES.md
