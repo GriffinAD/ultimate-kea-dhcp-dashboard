@@ -8,10 +8,14 @@ from lib.plugin_api import PluginEvent
 class EventBus:
     def __init__(self, logger) -> None:
         self._logger = logger
-        self._subscribers: dict[str, list[Callable[[PluginEvent], None]]] = defaultdict(list)
+        self._subscribers: dict[str, list[tuple[str | None, Callable[[PluginEvent], None]]]] = defaultdict(list)
 
-    def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
-        self._subscribers[event_type].append(handler)
+    def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None], owner: str | None = None) -> None:
+        self._subscribers[event_type].append((owner, handler))
+
+    def unsubscribe_owner(self, owner: str) -> None:
+        for event_type, handlers in list(self._subscribers.items()):
+            self._subscribers[event_type] = [entry for entry in handlers if entry[0] != owner]
 
     def emit(self, event: PluginEvent) -> None:
         handlers = list(self._subscribers.get(event.type, []))
@@ -22,7 +26,7 @@ class EventBus:
 
         handlers.extend(self._subscribers.get("*", []))
 
-        for handler in handlers:
+        for _owner, handler in handlers:
             try:
                 handler(event)
             except Exception as exc:
