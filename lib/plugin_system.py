@@ -12,7 +12,6 @@ from lib.scheduler import Scheduler
 from lib.plugin_api import PluginEvent, DashboardPlugin
 
 
-# Re-export for backward compatibility
 DashboardPlugin = DashboardPlugin
 
 
@@ -95,38 +94,16 @@ class PluginContext:
             self.service_owners.pop(name, None)
 
     def register_route(self, path: str, handler: Callable[..., Any], methods=None) -> None:
-        self.routes.append(
-            RouteRegistration(
-                path=path,
-                methods=list(methods or ["GET"]),
-                handler=handler,
-                plugin_id=self._current_plugin,
-            )
-        )
+        self.routes.append(RouteRegistration(path=path, methods=list(methods or ["GET"]), handler=handler, plugin_id=self._current_plugin))
 
     def register_dashboard_card(self, card_id: str, title: str, render=None, order: int = 100) -> None:
-        self.cards.append(
-            DashboardCard(
-                id=card_id,
-                title=title,
-                render=render,
-                order=order,
-                plugin_id=self._current_plugin,
-            )
-        )
+        self.cards.append(DashboardCard(id=card_id, title=title, render=render, order=order, plugin_id=self._current_plugin))
 
     def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
         self.event_bus.subscribe(event_type, handler, owner=self._current_plugin)
 
     def emit(self, event_type: str, payload: dict | None = None, severity: str = "info") -> None:
-        self.event_bus.emit(
-            PluginEvent(
-                type=event_type,
-                source=self._current_plugin or "system",
-                payload=payload or {},
-                severity=severity,
-            )
-        )
+        self.event_bus.emit(PluginEvent(type=event_type, source=self._current_plugin or "system", payload=payload or {}, severity=severity))
 
 
 class PluginManager:
@@ -141,6 +118,17 @@ class PluginManager:
         self.manifests: Dict[str, PluginManifest] = {}
         self.plugins: Dict[str, Any] = {}
         self.logger = logging.getLogger("ukd.plugins")
+        self.state_file = self.plugins_dir / ".state.json"
+        self.plugin_state = self._load_state()
+
+    def _load_state(self) -> Dict[str, bool]:
+        try:
+            return json.loads(self.state_file.read_text())
+        except Exception:
+            return {}
+
+    def _save_state(self) -> None:
+        self.state_file.write_text(json.dumps(self.plugin_state, indent=2))
 
     def discover(self) -> Dict[str, PluginManifest]:
         manifests = {}
@@ -162,26 +150,39 @@ class PluginManager:
         spec.loader.exec_module(module)
         return getattr(module, class_name)
 
+    def _load_single_plugin(self, pid: str, manifest: PluginManifest) -> bool:
+        if pid in self.plugins:
+            return True
+        try:
+            cls = self._load_module(manifest)
+            plugin = cls()
+            plugin.manifest = manifest
+
+            self.context.set_current_plugin(pid)
+            if hasattr(plugin, "setup"):
+                plugin.setup(self.context)
+            else:
+                plugin.register(self.context)
+            self.context.set_current_plugin(None)
+
+            self.plugins[pid] = plugin
+            self.context.register_service(pid, plugin)
+            try:
+                plugin.start()
+            except Exception:
+                self.logger.exception("Start failed %s", pid)
+            self.logger.info("Loaded %s", pid)
+            return True
+        except Exception:
+            self.context.set_current_plugin(None)
+            self.logger.exception("Failed plugin %s", pid)
+            return False
+
     def load_enabled_plugins(self):
         for pid, manifest in self.manifests.items():
-            try:
-                cls = self._load_module(manifest)
-                plugin = cls()
-                plugin.manifest = manifest
-
-                self.context.set_current_plugin(pid)
-                if hasattr(plugin, "setup"):
-                    plugin.setup(self.context)
-                else:
-                    plugin.register(self.context)
-                self.context.set_current_plugin(None)
-
-                self.plugins[pid] = plugin
-                self.context.register_service(pid, plugin)
-                self.logger.info("Loaded %s", pid)
-            except Exception:
-                self.context.set_current_plugin(None)
-                self.logger.exception("Failed plugin %s", pid)
+            enabled = self.plugin_state.get(pid, manifest.enabled_by_default)
+            if enabled:
+                self._load_single_plugin(pid, manifest)
 
     def start_all(self):
         for pid, plugin in self.plugins.items():
@@ -215,6 +216,26 @@ class PluginManager:
         self.plugins.pop(plugin_id, None)
         return True
 
+    def enable_plugin(self, plugin_id: str) -> bool:
+        manifest = self.manifests.get(plugin_id)
+        if not manifest:
+            return False
+        self.plugin_state[plugin_id] = True
+        self._save_state()
+        return self._load_single_plugin(plugin_id, manifest)
+
+    def disable_plugin(self, plugin_id: str) -> bool:
+        self.plugin_state[plugin_id] = False
+        self._save_state()
+        return self.unload_plugin(plugin_id)
+
+    def restart_plugin(self, plugin_id: str) -> bool:
+        was_enabled = self.plugin_state.get(plugin_id, True)
+        self.unload_plugin(plugin_id)
+        if was_enabled:
+            return self.enable_plugin(plugin_id)
+        return True
+
     def get_registered_routes(self):
         return list(self.context.routes)
 
@@ -243,7 +264,8 @@ class PluginManager:
                 "id": manifest.id,
                 "name": manifest.name,
                 "version": manifest.version,
-                "enabled": manifest.id in self.plugins,
+                "enabled": self.plugin_state.get(manifest.id, manifest.enabled_by_default) and manifest.id in self.plugins,
+                "configured_enabled": self.plugin_state.get(manifest.id, manifest.enabled_by_default),
                 "description": manifest.description,
                 "provides": manifest.provides,
                 "health": health,
