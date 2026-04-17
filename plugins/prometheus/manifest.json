@@ -1,0 +1,9 @@
+{
+  "id": "prometheus",
+  "name": "Prometheus Exporter",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true,
+  "provides": ["metrics"],
+  "description": "Expose metrics for Prometheus"
+}
