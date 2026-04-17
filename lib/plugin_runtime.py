@@ -58,12 +58,14 @@ class PluginRuntime:
 
         self.namespace["generate_html"] = patched_generate_html
 
-    def _dispatch_plugin_route(self, handler, parsed_path: str) -> bool:
+    def _dispatch_plugin_route(self, handler, parsed_path: str, method: str) -> bool:
         if not self.plugin_manager:
             return False
 
         for route in self.plugin_manager.get_registered_routes():
             if parsed_path != route.path:
+                continue
+            if method not in [m.upper() for m in route.methods]:
                 continue
 
             try:
@@ -104,11 +106,19 @@ class PluginRuntime:
 
         def patched_do_get(self):
             parsed = urlparse(self.path)
-            if runtime._dispatch_plugin_route(self, parsed.path):
+            if runtime._dispatch_plugin_route(self, parsed.path, "GET"):
                 return
             return original_do_get(self)
 
+        def patched_do_post(self):
+            parsed = urlparse(self.path)
+            if runtime._dispatch_plugin_route(self, parsed.path, "POST"):
+                return
+            self.send_response(404)
+            self.end_headers()
+
         original_handler_class.do_GET = patched_do_get
+        original_handler_class.do_POST = patched_do_post
         self.namespace["KeaHandler"] = original_handler_class
 
     def initialize_plugins(self) -> None:
