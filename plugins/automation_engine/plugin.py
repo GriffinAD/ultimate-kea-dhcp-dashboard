@@ -6,6 +6,7 @@ from .actions import webhook_action
 class Plugin(DashboardPlugin):
     def setup(self, context):
         self.context = context
+        self.manifest = getattr(self, "manifest", None)
         self.rules_path = Path(__file__).parent / "rules.json"
         self.rules = self._load_rules()
         context.subscribe("*", self.handle_event)
@@ -34,7 +35,7 @@ class Plugin(DashboardPlugin):
         if atype == "log":
             print(f"[AUTOMATION] {event.type}: {event.payload}")
         elif atype == "webhook":
-            webhook_action(action, event)
+            webhook_action(action, event, self.context, self.manifest)
 
     def get_rules(self, handler=None):
         return self.rules
