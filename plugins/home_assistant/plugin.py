@@ -1,14 +1,29 @@
 from datetime import datetime, timezone
-from lib.plugin_system import DashboardPlugin
+import time
+
 import requests
+from lib.plugin_system import DashboardPlugin
 
 
 class Plugin(DashboardPlugin):
     def register(self, context):
         self.context = context
-        self.webhook_url = context.config.get("home_assistant_webhook")
-        self.send_status_events = bool(context.config.get("home_assistant_send_status_events", False))
+        cfg = context.config
+
+        self.webhook_url = cfg.get("home_assistant_webhook")
+        self.send_status_events = bool(cfg.get("home_assistant_send_status_events", False))
+        self.retry_count = int(cfg.get("home_assistant_retry_count", 3))
+        self.retry_backoff_seconds = float(cfg.get("home_assistant_retry_backoff_seconds", 1.5))
+        self.routing = cfg.get(
+            "home_assistant_routing",
+            {
+                "critical": self.webhook_url,
+                "warning": self.webhook_url,
+                "info": self.webhook_url,
+            },
+        )
         self.last_sent_signatures = {}
+        self.delivery_failures = {}
 
         context.register_route(
             "/api/plugins/home-assistant/test",
@@ -40,6 +55,9 @@ class Plugin(DashboardPlugin):
             "configured": bool(self.webhook_url),
             "send_status_events": self.send_status_events,
             "dedupe_cache_size": len(self.last_sent_signatures),
+            "routing": self.routing,
+            "retry_count": self.retry_count,
+            "delivery_failures": self.delivery_failures,
         }
 
     def handle_ha_status(self, data):
@@ -112,21 +130,51 @@ class Plugin(DashboardPlugin):
             return f"{event_name}:{cluster.get('active_node')}:{','.join(cluster.get('partner_down_nodes', []))}"
         return payload.get("event", "unknown")
 
+    def _resolve_destination(self, severity):
+        destination = self.routing.get(severity)
+        if destination == "ignore":
+            return None
+        return destination or self.webhook_url
+
+    def _send_with_retry(self, destination, payload):
+        last_error = None
+        for attempt in range(1, self.retry_count + 1):
+            try:
+                response = requests.post(destination, json=payload, timeout=3)
+                response.raise_for_status()
+                return {
+                    "status": response.status_code,
+                    "attempts": attempt,
+                    "destination": destination,
+                }
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt < self.retry_count:
+                    time.sleep(self.retry_backoff_seconds * attempt)
+        return {
+            "error": last_error or "unknown delivery error",
+            "attempts": self.retry_count,
+            "destination": destination,
+        }
+
     def _send(self, payload, dedupe=True):
-        if not self.webhook_url:
-            return {"error": "No webhook configured", "payload": payload}
+        destination = self._resolve_destination(payload.get("severity", "info"))
+        if not destination:
+            return {"status": "ignored", "reason": "routing", "payload": payload}
 
         signature = self._signature_for_payload(payload)
-        if dedupe and self.last_sent_signatures.get(payload.get("event")) == signature:
+        event_name = payload.get("event")
+        if dedupe and self.last_sent_signatures.get(event_name) == signature:
             return {"status": "deduped", "signature": signature}
 
-        try:
-            response = requests.post(self.webhook_url, json=payload, timeout=3)
-            response.raise_for_status()
-            self.last_sent_signatures[payload.get("event")] = signature
-            return {"status": response.status_code, "signature": signature}
-        except Exception as exc:
-            return {"error": str(exc), "payload": payload}
+        result = self._send_with_retry(destination, payload)
+        if "error" in result:
+            self.delivery_failures[event_name] = result
+            return {**result, "payload": payload}
+
+        self.last_sent_signatures[event_name] = signature
+        self.delivery_failures.pop(event_name, None)
+        return {**result, "signature": signature}
 
     def start(self):
         pass
