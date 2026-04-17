@@ -1,0 +1,9 @@
+{
+  "id": "admin",
+  "name": "Plugin Admin",
+  "version": "0.1.0",
+  "entrypoint": "plugin:Plugin",
+  "enabled_by_default": true,
+  "provides": ["plugin_admin", "plugin_status"],
+  "description": "Plugin health, status, and recent event visibility"
+}
