@@ -1,30 +1,166 @@
+from copy import deepcopy
 from lib.plugin_system import DashboardPlugin
 import requests
+
 
 class Plugin(DashboardPlugin):
     def register(self, context):
         self.context = context
-        self.nodes = {
-            "kea1": "http://127.0.0.1:8000",
-        }
+        self.previous_cluster_status = None
+        self.nodes = self._load_nodes()
 
         context.register_route(
             "/api/plugins/kea-ha/status",
             self.get_status
         )
 
+    def _load_nodes(self):
+        configured_nodes = self.context.config.get("kea_ha_nodes")
+        if isinstance(configured_nodes, dict) and configured_nodes:
+            return configured_nodes
+
+        return {
+            "kea1": "http://127.0.0.1:8000",
+        }
+
+    def _extract_ha_record(self, response_json):
+        if isinstance(response_json, list) and response_json:
+            response_json = response_json[0]
+
+        arguments = response_json.get("arguments", {}) if isinstance(response_json, dict) else {}
+        ha_list = arguments.get("high-availability", [])
+        if not ha_list:
+            return {}
+
+        return ha_list[0] or {}
+
+    def _normalize_node_status(self, node_name, response_json=None, error=None):
+        if error:
+            return {
+                "node": node_name,
+                "reachable": False,
+                "error": error,
+                "mode": None,
+                "local_role": None,
+                "local_state": None,
+                "remote_role": None,
+                "remote_state": None,
+                "raw": None,
+            }
+
+        ha = self._extract_ha_record(response_json)
+        local = ha.get("local", {})
+        remote = ha.get("remote", {})
+
+        return {
+            "node": node_name,
+            "reachable": True,
+            "error": None,
+            "mode": ha.get("ha-mode"),
+            "local_role": local.get("role"),
+            "local_state": local.get("state"),
+            "remote_role": remote.get("role"),
+            "remote_state": remote.get("state"),
+            "raw": response_json,
+        }
+
+    def _get_active_node_name(self, cluster_status):
+        for node_name, node_status in cluster_status.get("nodes", {}).items():
+            if node_status.get("local_state") == "active":
+                return node_name
+        return None
+
+    def _build_cluster_status(self, node_results):
+        active_node = self._get_active_node_name({"nodes": node_results})
+        partner_down_nodes = []
+
+        for node_name, node_status in node_results.items():
+            if node_status.get("local_state") == "partner-down":
+                partner_down_nodes.append(node_name)
+            if node_status.get("remote_state") == "partner-down":
+                partner_down_nodes.append(node_name)
+
+        return {
+            "nodes": node_results,
+            "active_node": active_node,
+            "partner_down_nodes": sorted(set(partner_down_nodes)),
+        }
+
+    def _emit_events(self, cluster_status):
+        previous = self.previous_cluster_status
+
+        self.context.event_bus.publish(
+            "kea.ha.status",
+            deepcopy(cluster_status)
+        )
+
+        if previous is None:
+            self.previous_cluster_status = deepcopy(cluster_status)
+            return
+
+        if previous != cluster_status:
+            self.context.event_bus.publish(
+                "kea.ha.state_changed",
+                {
+                    "previous": deepcopy(previous),
+                    "current": deepcopy(cluster_status),
+                },
+            )
+
+        previous_active = previous.get("active_node")
+        current_active = cluster_status.get("active_node")
+        if previous_active != current_active:
+            self.context.event_bus.publish(
+                "kea.ha.failover_detected",
+                {
+                    "from": previous_active,
+                    "to": current_active,
+                    "previous": deepcopy(previous),
+                    "current": deepcopy(cluster_status),
+                },
+            )
+
+        previous_partner_down = set(previous.get("partner_down_nodes", []))
+        current_partner_down = set(cluster_status.get("partner_down_nodes", []))
+        if current_partner_down and current_partner_down != previous_partner_down:
+            self.context.event_bus.publish(
+                "kea.ha.partner_down",
+                {
+                    "nodes": sorted(current_partner_down),
+                    "previous": deepcopy(previous),
+                    "current": deepcopy(cluster_status),
+                },
+            )
+
+        self.previous_cluster_status = deepcopy(cluster_status)
+
     def get_status(self, handler=None):
-        result = {}
+        node_results = {}
+
         for name, url in self.nodes.items():
             try:
-                r = requests.post(url, json={
-                    "command": "ha-status",
-                    "service": ["dhcp4"]
-                }, timeout=2)
-                result[name] = r.json()
-            except Exception as e:
-                result[name] = {"error": str(e)}
-        return result
+                response = requests.post(
+                    url,
+                    json={
+                        "command": "ha-status",
+                        "service": ["dhcp4"],
+                    },
+                    timeout=2,
+                )
+                response.raise_for_status()
+                node_results[name] = self._normalize_node_status(
+                    name,
+                    response_json=response.json(),
+                )
+            except Exception as exc:
+                node_results[name] = self._normalize_node_status(
+                    name,
+                    error=str(exc),
+                )
+
+        cluster_status = self._build_cluster_status(node_results)
+        self._emit_events(cluster_status)
+        return cluster_status
 
     def start(self):
         pass
