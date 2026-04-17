@@ -85,6 +85,9 @@ class PluginContext:
     def register_dashboard_card(self, card_id: str, title: str, render=None, order: int = 100) -> None:
         self.cards.append(DashboardCard(id=card_id, title=title, render=render, order=order))
 
+    def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
+        self.event_bus.subscribe(event_type, handler)
+
     def emit(self, event_type: str, payload: dict | None = None, severity: str = "info") -> None:
         self.event_bus.emit(PluginEvent(type=event_type, source="system", payload=payload or {}, severity=severity))
 
