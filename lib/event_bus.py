@@ -32,3 +32,6 @@ class EventBus:
                     event.source,
                     exc,
                 )
+
+    def publish(self, event_name: str, payload: dict | None = None) -> None:
+        self.emit(PluginEvent(type=event_name, source="legacy", payload=payload or {}))
