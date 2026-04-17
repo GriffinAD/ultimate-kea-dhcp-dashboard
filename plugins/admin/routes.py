@@ -48,7 +48,8 @@ def register_routes(context):
 
         known = {
             "admin": {"route": "/admin", "title": "Admin"},
-            "automation_engine": {"route": "/automation", "title": "Automation"}
+            "automation_engine": {"route": "/automation", "title": "Automation"},
+            "kea_ha": {"route": "/kea", "title": "Kea HA"}
         }
 
         return [
