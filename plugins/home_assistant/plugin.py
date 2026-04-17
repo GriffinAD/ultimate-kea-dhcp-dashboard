@@ -2,25 +2,33 @@ from datetime import datetime, timezone
 import time
 
 import requests
-from lib.plugin_system import DashboardPlugin
+from lib.plugin_api import DashboardPlugin, PluginEvent
 
 
 class Plugin(DashboardPlugin):
-    def register(self, context):
-        self.context = context
-        cfg = context.config
+    def setup(self, context):
+        super().setup(context)
 
-        self.webhook_url = cfg.get("home_assistant_webhook")
-        self.send_status_events = bool(cfg.get("home_assistant_send_status_events", False))
-        self.retry_count = int(cfg.get("home_assistant_retry_count", 3))
-        self.retry_backoff_seconds = float(cfg.get("home_assistant_retry_backoff_seconds", 1.5))
+        cfg = context.get_plugin_config("home_assistant")
+
+        self.webhook_url = cfg.get("webhook") or cfg.get("url") or context.config.get("home_assistant_webhook")
+        self.send_status_events = bool(
+            cfg.get("send_status_events", context.config.get("home_assistant_send_status_events", False))
+        )
+        self.retry_count = int(cfg.get("retry_count", context.config.get("home_assistant_retry_count", 3)))
+        self.retry_backoff_seconds = float(
+            cfg.get("retry_backoff_seconds", context.config.get("home_assistant_retry_backoff_seconds", 1.5))
+        )
         self.routing = cfg.get(
-            "home_assistant_routing",
-            {
-                "critical": self.webhook_url,
-                "warning": self.webhook_url,
-                "info": self.webhook_url,
-            },
+            "routing",
+            context.config.get(
+                "home_assistant_routing",
+                {
+                    "critical": self.webhook_url,
+                    "warning": self.webhook_url,
+                    "info": self.webhook_url,
+                },
+            ),
         )
         self.last_sent_signatures = {}
         self.delivery_failures = {}
@@ -40,6 +48,8 @@ class Plugin(DashboardPlugin):
         context.event_bus.subscribe("kea.ha.failover_detected", self.handle_failover)
         context.event_bus.subscribe("kea.ha.partner_down", self.handle_partner_down)
 
+        self.set_healthy("Configured", configured=bool(self.webhook_url))
+
     def send_test(self, handler=None):
         payload = self._build_payload(
             event_name="test",
@@ -48,7 +58,12 @@ class Plugin(DashboardPlugin):
             message="Home Assistant plugin test successful",
             data={},
         )
-        return self._send(payload, dedupe=False)
+        result = self._send(payload, dedupe=False)
+        if "error" in result:
+            self.set_degraded("Test delivery failed", error=result.get("error"))
+        else:
+            self.set_healthy("Test delivery OK")
+        return result
 
     def get_status(self, handler=None):
         return {
@@ -58,9 +73,11 @@ class Plugin(DashboardPlugin):
             "routing": self.routing,
             "retry_count": self.retry_count,
             "delivery_failures": self.delivery_failures,
+            "health": self.health().__dict__,
         }
 
-    def handle_ha_status(self, data):
+    def handle_ha_status(self, event: PluginEvent):
+        data = event.payload
         active_node = data.get("active_node")
         payload = self._build_payload(
             event_name="kea_ha_status",
@@ -71,7 +88,8 @@ class Plugin(DashboardPlugin):
         )
         self._send(payload, dedupe=True)
 
-    def handle_state_changed(self, data):
+    def handle_state_changed(self, event: PluginEvent):
+        data = event.payload
         current = data.get("current", {})
         active_node = current.get("active_node")
         payload = self._build_payload(
@@ -83,7 +101,8 @@ class Plugin(DashboardPlugin):
         )
         self._send(payload, dedupe=True)
 
-    def handle_failover(self, data):
+    def handle_failover(self, event: PluginEvent):
+        data = event.payload
         payload = self._build_payload(
             event_name="kea_failover",
             severity="critical",
@@ -93,7 +112,8 @@ class Plugin(DashboardPlugin):
         )
         self._send(payload, dedupe=True)
 
-    def handle_partner_down(self, data):
+    def handle_partner_down(self, event: PluginEvent):
+        data = event.payload
         nodes = ", ".join(data.get("nodes", [])) or "unknown"
         payload = self._build_payload(
             event_name="kea_partner_down",
@@ -170,14 +190,13 @@ class Plugin(DashboardPlugin):
         result = self._send_with_retry(destination, payload)
         if "error" in result:
             self.delivery_failures[event_name] = result
+            self.set_degraded("Delivery failed", error=result.get("error"), event=event_name)
             return {**result, "payload": payload}
 
         self.last_sent_signatures[event_name] = signature
         self.delivery_failures.pop(event_name, None)
+        self.set_healthy("Delivery OK", event=event_name)
         return {**result, "signature": signature}
 
-    def start(self):
-        pass
-
     def stop(self):
-        pass
+        super().stop()
