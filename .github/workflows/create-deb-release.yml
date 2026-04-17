@@ -12,24 +12,33 @@ permissions:
 jobs:
   build-deb:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
       - name: Install packaging tools
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev debhelper
-      
+
       - name: Build Debian package
         run: |
-          cd packaging
-          rm -f *.deb
-          chmod +x build-deb.sh
-          ./build-deb.sh
-      
-      - name: Upload to existing release
-        uses: softprops/action-gh-release@v1
+          chmod +x packaging/*.sh
+          ./packaging/build-deb.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: deb-packages
+          path: packaging/*.deb
+          if-no-files-found: error
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: packaging/*.deb
