@@ -9,7 +9,11 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from lib.event_bus import EventBus
 from lib.scheduler import Scheduler
-from lib.plugin_api import PluginEvent
+from lib.plugin_api import PluginEvent, DashboardPlugin
+
+
+# Re-export for backward compatibility
+DashboardPlugin = DashboardPlugin
 
 
 @dataclass
