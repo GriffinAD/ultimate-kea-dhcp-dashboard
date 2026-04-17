@@ -3,7 +3,9 @@ const navItems = [];
 
 export function registerRoute(path, renderer, title) {
   routes[path] = renderer;
-  navItems.push({ path, title });
+  if (!navItems.find(i => i.path === path)) {
+    navItems.push({ path, title });
+  }
 }
 
 export function navigate(path) {
@@ -32,11 +34,14 @@ function renderRoute() {
 window.addEventListener('popstate', renderRoute);
 window.navigate = navigate;
 
-// register plugin UIs
-import { render as renderAdmin } from '/plugins/admin/ui/index.js';
+// register plugin UIs via contract
+import { ui as adminUI } from '/plugins/admin/ui/index.js';
 import { ui as automationUI } from '/plugins/automation_engine/ui/index.js';
 
-registerRoute('/admin', renderAdmin, 'Admin');
-registerRoute(automationUI.route, automationUI.render, automationUI.title);
+[adminUI, automationUI].forEach(ui => {
+  if (ui && ui.route && ui.render) {
+    registerRoute(ui.route, ui.render, ui.title || ui.route);
+  }
+});
 
 renderRoute();
