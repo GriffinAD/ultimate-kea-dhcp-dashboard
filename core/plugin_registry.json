@@ -1,0 +1,5 @@
+[
+  {"id": "admin", "name": "Admin", "version": "1.0.0"},
+  {"id": "automation_engine", "name": "Automation Engine", "version": "0.1.0"},
+  {"id": "prometheus", "name": "Prometheus", "version": "0.1.0"}
+]
