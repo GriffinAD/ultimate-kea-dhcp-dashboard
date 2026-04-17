@@ -5,6 +5,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+"$SCRIPT_DIR/sync-metadata.sh"
+
 VERSION=$(cat "$PROJECT_ROOT/VERSION")
 PACKAGE_NAME="ultimate-kea-dashboard"
 BUILD_DIR="/tmp/${PACKAGE_NAME}-build"
@@ -34,7 +36,7 @@ cd "$PROJECT_ROOT"
 for dir in bin lib static data etc; do
     [ -d "$dir" ] && cp -r "$dir" "$DEB_DIR/opt/ukd/"
 done
-for file in requirements.txt VERSION *.sh; do
+for file in requirements.txt requirements-plugin.txt VERSION *.sh; do
     [ -f "$file" ] && cp "$file" "$DEB_DIR/opt/ukd/" 2>/dev/null || true
 done
 
