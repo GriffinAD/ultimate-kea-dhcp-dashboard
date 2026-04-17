@@ -145,6 +145,7 @@ class PluginRuntime:
         self.plugin_manager = PluginManager(root_dir=self.root_dir, config=config)
         self.plugin_manager.discover()
         self.plugin_manager.load_enabled_plugins()
+        self.plugin_manager.context.register_service("plugin_manager", self.plugin_manager)
         self.plugin_manager.start_all()
         self.namespace["plugin_manager"] = self.plugin_manager
 
