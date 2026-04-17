@@ -1,5 +1,7 @@
-import time
 import subprocess
+import time
+from typing import Any
+
 import requests
 from lib.plugin_api import DashboardPlugin, PluginEvent
 
@@ -15,16 +17,32 @@ class Plugin(DashboardPlugin):
         self.dry_run = bool(cfg.get("dry_run", context.config.get("automation_dry_run", True)))
         self.cooldown = int(cfg.get("cooldown", context.config.get("automation_cooldown", 60)))
         self.rules = cfg.get("rules", [])
-
         self.last_run = {}
+        self.execution_history = []
 
-        # Subscribe dynamically based on rules
+        self.actions = {
+            "webhook": self._action_webhook,
+            "command": self._action_command,
+            "notify": self._action_notify,
+            "emit": self._action_emit,
+        }
+
         for rule in self.rules:
             event_type = rule.get("when")
             if event_type:
                 context.subscribe(event_type, self._handle_event)
 
         self.set_healthy("Automation ready", rules=len(self.rules))
+
+    def get_status(self, handler=None):
+        return {
+            "enabled": self.enabled,
+            "dry_run": self.dry_run,
+            "cooldown": self.cooldown,
+            "rules": len(self.rules),
+            "history": self.execution_history[-20:],
+            "health": self.health().__dict__,
+        }
 
     def _cooldown_ok(self, key):
         now = time.time()
@@ -42,43 +60,179 @@ class Plugin(DashboardPlugin):
             if rule.get("when") != event.type:
                 continue
 
-            rule_id = rule.get("id", rule.get("when"))
+            if not self._rule_matches(rule, event):
+                continue
 
+            rule_id = rule.get("id", rule.get("when"))
             if not self._cooldown_ok(rule_id):
                 continue
 
             self._execute_rule(rule, event)
 
+    def _rule_matches(self, rule: dict[str, Any], event: PluginEvent) -> bool:
+        conditions = rule.get("if") or rule.get("conditions") or []
+        if isinstance(conditions, dict):
+            conditions = [conditions]
+
+        for condition in conditions:
+            path = condition.get("path")
+            op = condition.get("op", "eq")
+            expected = condition.get("value")
+            actual = self._get_value(event, path)
+
+            if not self._evaluate_condition(actual, op, expected):
+                return False
+
+        return True
+
+    def _get_value(self, event: PluginEvent, path: str | None):
+        if not path:
+            return None
+
+        if path == "event.type":
+            return event.type
+        if path == "event.source":
+            return event.source
+        if path == "event.severity":
+            return event.severity
+
+        if path.startswith("payload."):
+            current = event.payload
+            parts = path.split(".")[1:]
+            for part in parts:
+                if not isinstance(current, dict):
+                    return None
+                current = current.get(part)
+            return current
+
+        return None
+
+    def _evaluate_condition(self, actual, op: str, expected) -> bool:
+        if op == "eq":
+            return actual == expected
+        if op == "ne":
+            return actual != expected
+        if op == "in":
+            return actual in (expected or [])
+        if op == "contains":
+            return expected in (actual or [])
+        if op == "exists":
+            return actual is not None
+        if op == "not_exists":
+            return actual is None
+        if op == "truthy":
+            return bool(actual)
+        if op == "falsy":
+            return not bool(actual)
+        return False
+
     def _execute_rule(self, rule, event: PluginEvent):
-        action = rule.get("then")
-        payload = {
+        actions = self._normalize_actions(rule)
+        rule_id = rule.get("id", rule.get("when", "rule"))
+        results = []
+
+        for action in actions:
+            action_type = action.get("type")
+            handler = self.actions.get(action_type)
+            if not handler:
+                results.append({"type": action_type, "error": "unknown action"})
+                continue
+
+            if self.dry_run:
+                self.context.logger.info(
+                    "[DRY RUN] Rule %s would execute action %s for event %s",
+                    rule_id,
+                    action_type,
+                    event.type,
+                )
+                results.append({"type": action_type, "status": "dry_run"})
+                continue
+
+            try:
+                result = handler(action, event)
+                results.append({"type": action_type, **(result or {})})
+            except Exception as exc:
+                results.append({"type": action_type, "error": str(exc)})
+
+        history_item = {
+            "rule": rule_id,
             "event": event.type,
-            "data": event.payload
+            "results": results,
+        }
+        self.execution_history.append(history_item)
+        self.execution_history = self.execution_history[-100:]
+
+        if any("error" in r for r in results):
+            self.set_degraded("Rule execution failed", rule=rule_id, results=results)
+        else:
+            self.set_healthy("Rule executed", rule=rule_id, results=results)
+
+    def _normalize_actions(self, rule: dict[str, Any]) -> list[dict[str, Any]]:
+        if isinstance(rule.get("actions"), list):
+            return rule["actions"]
+
+        then_value = rule.get("then")
+        if isinstance(then_value, list):
+            normalized = []
+            for item in then_value:
+                if isinstance(item, str):
+                    normalized.append({"type": item})
+                elif isinstance(item, dict):
+                    normalized.append(item)
+            return normalized
+
+        if isinstance(then_value, str):
+            action = {"type": then_value}
+            for key in ("url", "command", "event", "payload"):
+                if key in rule:
+                    action[key] = rule[key]
+            return [action]
+
+        return []
+
+    def _action_webhook(self, action: dict[str, Any], event: PluginEvent):
+        url = action.get("url")
+        if not url:
+            raise ValueError("webhook action missing url")
+
+        payload = action.get("payload") or {
+            "event": event.type,
+            "source": event.source,
+            "severity": event.severity,
+            "data": event.payload,
         }
 
-        if self.dry_run:
-            self.context.logger.info(f"[DRY RUN] Rule {rule.get('id')} would execute {action} with {payload}")
-            return
+        response = requests.post(url, json=payload, timeout=3)
+        response.raise_for_status()
+        return {"status": response.status_code}
 
-        try:
-            if action == "webhook":
-                url = rule.get("url")
-                if url:
-                    requests.post(url, json=payload, timeout=3)
+    def _action_command(self, action: dict[str, Any], event: PluginEvent):
+        command = action.get("command")
+        if not command:
+            raise ValueError("command action missing command")
 
-            elif action == "command":
-                cmd = rule.get("command")
-                if cmd:
-                    subprocess.Popen(cmd, shell=True)
+        subprocess.Popen(command, shell=True)
+        return {"status": "started"}
 
-            elif action == "notify":
-                # delegate to HA plugin via event
-                self.context.emit("automation.notify", payload)
+    def _action_notify(self, action: dict[str, Any], event: PluginEvent):
+        payload = action.get("payload") or {
+            "event": event.type,
+            "source": event.source,
+            "severity": event.severity,
+            "data": event.payload,
+        }
+        self.context.emit("automation.notify", payload)
+        return {"status": "emitted", "event": "automation.notify"}
 
-            self.set_healthy("Rule executed", rule=rule.get("id"))
+    def _action_emit(self, action: dict[str, Any], event: PluginEvent):
+        event_name = action.get("event")
+        if not event_name:
+            raise ValueError("emit action missing event")
 
-        except Exception as exc:
-            self.set_degraded("Rule execution failed", error=str(exc), rule=rule.get("id"))
+        payload = action.get("payload") or event.payload
+        severity = action.get("severity", event.severity)
+        self.context.emit(event_name, payload, severity=severity)
+        return {"status": "emitted", "event": event_name}
 
     def stop(self):
         super().stop()
