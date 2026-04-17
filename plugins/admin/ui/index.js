@@ -19,3 +19,9 @@ export function render(container) {
 
   window.nav("health");
 }
+
+export const ui = {
+  route: '/admin',
+  title: 'Admin',
+  render
+};
