@@ -163,3 +163,32 @@ class PluginManager:
 
     def get_dashboard_cards(self):
         return sorted(self.context.cards, key=lambda c: c.order)
+
+    def describe_plugins(self):
+        descriptions = []
+        for manifest in self.manifests.values():
+            plugin = self.plugins.get(manifest.id)
+            health = None
+            if plugin and hasattr(plugin, "health"):
+                try:
+                    h = plugin.health()
+                    health = {
+                        "status": h.status,
+                        "message": h.message,
+                        "last_error": h.last_error,
+                        "last_success": h.last_success,
+                        "details": h.details,
+                    }
+                except Exception:
+                    health = {"status": "failed", "message": "health() failed"}
+
+            descriptions.append({
+                "id": manifest.id,
+                "name": manifest.name,
+                "version": manifest.version,
+                "enabled": manifest.id in self.plugins,
+                "description": manifest.description,
+                "provides": manifest.provides,
+                "health": health,
+            })
+        return descriptions
