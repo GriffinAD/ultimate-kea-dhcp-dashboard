@@ -12,6 +12,7 @@ class Plugin(DashboardPlugin):
 
         context.register_route("/api/automation/rules", self.get_rules)
         context.register_route("/api/automation/rules/add", self.add_rule, methods=["POST"])
+        context.register_route("/api/automation/rules/delete", self.delete_rule, methods=["POST"])
 
     def _load_rules(self):
         try:
@@ -43,4 +44,13 @@ class Plugin(DashboardPlugin):
         data = json.loads(handler.rfile.read(length))
         self.rules.append(data)
         self._save_rules()
+        return {"status": "ok"}
+
+    def delete_rule(self, handler):
+        length = int(handler.headers.get('Content-Length', 0))
+        data = json.loads(handler.rfile.read(length))
+        index = data.get("index")
+        if isinstance(index, int) and 0 <= index < len(self.rules):
+            self.rules.pop(index)
+            self._save_rules()
         return {"status": "ok"}
