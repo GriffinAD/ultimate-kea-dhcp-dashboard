@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from lib.event_bus import EventBus
 from lib.scheduler import Scheduler
 from lib.plugin_api import PluginEvent, DashboardPlugin
+from core.security import SecurityManager
 
 
 DashboardPlugin = DashboardPlugin
@@ -42,6 +43,9 @@ class PluginManifest:
     depends_on: List[str] = field(default_factory=list)
     provides: List[str] = field(default_factory=list)
     description: str = ""
+    publisher: str = "local"
+    trust_level: str = "local"
+    capabilities: Dict[str, bool] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "PluginManifest":
@@ -54,6 +58,9 @@ class PluginManifest:
             depends_on=list(data.get("depends_on", [])),
             provides=list(data.get("provides", [])),
             description=data.get("description", ""),
+            publisher=data.get("publisher", "local"),
+            trust_level=data.get("trust_level", "local"),
+            capabilities=data.get("capabilities", {}),
         )
 
 
@@ -68,6 +75,7 @@ class PluginContext:
         self.routes: List[RouteRegistration] = []
         self.cards: List[DashboardCard] = []
         self._current_plugin: Optional[str] = None
+        self.security = SecurityManager(self.root_dir, config)
 
     @property
     def config(self) -> dict:
@@ -75,6 +83,12 @@ class PluginContext:
 
     def set_current_plugin(self, plugin_id: Optional[str]) -> None:
         self._current_plugin = plugin_id
+
+    def require_capability(self, capability: str):
+        pid = self._current_plugin
+        plugin = self.services.get(pid)
+        manifest = getattr(plugin, "manifest", None)
+        self.security.require(pid, manifest, capability)
 
     def get_plugin_config(self, plugin_id: str) -> dict:
         return self._root_config.get("plugins", {}).get(plugin_id, {})
@@ -268,6 +282,8 @@ class PluginManager:
                 "configured_enabled": self.plugin_state.get(manifest.id, manifest.enabled_by_default),
                 "description": manifest.description,
                 "provides": manifest.provides,
+                "trust": self.context.security.get_trust_level(manifest.id, manifest),
+                "capabilities": manifest.capabilities,
                 "health": health,
             })
         return descriptions
