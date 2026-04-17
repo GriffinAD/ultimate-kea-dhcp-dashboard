@@ -34,14 +34,20 @@ function renderRoute() {
 window.addEventListener('popstate', renderRoute);
 window.navigate = navigate;
 
-// register plugin UIs via contract
-import { ui as adminUI } from '/plugins/admin/ui/index.js';
-import { ui as automationUI } from '/plugins/automation_engine/ui/index.js';
-
-[adminUI, automationUI].forEach(ui => {
-  if (ui && ui.route && ui.render) {
-    registerRoute(ui.route, ui.render, ui.title || ui.route);
-  }
-});
-
-renderRoute();
+// dynamic plugin UI loading
+fetch('/api/ui/plugins')
+  .then(r => r.json())
+  .then(plugins => {
+    Promise.all(
+      plugins.map(p =>
+        import(`/plugins/${p.plugin}/ui/index.js`).then(mod => {
+          if (mod.ui) {
+            registerRoute(p.route, mod.ui.render, p.title);
+          }
+        })
+      )
+    ).then(() => renderRoute());
+  })
+  .catch(() => {
+    document.getElementById('app').innerHTML = '<h1>Failed to load plugins</h1>';
+  });
