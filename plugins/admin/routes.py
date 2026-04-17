@@ -32,6 +32,8 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
+        admin_manifest = pm.manifests.get("admin") if pm else None
+        context.security.require("admin", admin_manifest, "plugin_control")
         if pm:
             pm.restart_plugin(pid)
             return {"status": "restarted"}
@@ -50,6 +52,8 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
+        admin_manifest = pm.manifests.get("admin") if pm else None
+        context.security.require("admin", admin_manifest, "plugin_control")
         if pm:
             pm.enable_plugin(pid)
             return {"status": "enabled"}
@@ -68,6 +72,8 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
+        admin_manifest = pm.manifests.get("admin") if pm else None
+        context.security.require("admin", admin_manifest, "plugin_control")
         if pm:
             pm.disable_plugin(pid)
             return {"status": "disabled"}
@@ -90,6 +96,9 @@ def register_routes(context):
         length = int(handler.headers.get('Content-Length', 0))
         data = json.loads(handler.rfile.read(length))
         pid = data.get("plugin")
+        pm = context.get_service("plugin_manager")
+        admin_manifest = pm.manifests.get("admin") if pm else None
+        context.security.require("admin", admin_manifest, "marketplace_install")
         return install_marketplace_plugin(context, pid)
 
     context.register_route(
