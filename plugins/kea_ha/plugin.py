@@ -14,6 +14,19 @@ class Plugin(DashboardPlugin):
             self.get_status
         )
 
+        context.register_dashboard_card(
+            "kea_ha_status",
+            "Kea HA Status",
+            render=self.render_card,
+            order=10
+        )
+
+    def render_card(self):
+        status = self.get_status()
+        active = status.get("active_node")
+        partner_down = status.get("partner_down_nodes", [])
+        return f"<div><strong>Active:</strong> {active}<br/><strong>Partner Down:</strong> {partner_down}</div>"
+
     def _load_nodes(self):
         configured_nodes = self.context.config.get("kea_ha_nodes")
         if isinstance(configured_nodes, dict) and configured_nodes:
