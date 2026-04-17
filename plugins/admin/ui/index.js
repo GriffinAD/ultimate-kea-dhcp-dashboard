@@ -4,7 +4,7 @@ import { renderAlerts } from "./alerts.js";
 export function render(container) {
   container.innerHTML = `
     <h1>Admin Dashboard</h1>
-    <div>
+    <div class="grid">
       <button onclick="nav('health')">Health</button>
       <button onclick="nav('alerts')">Alerts</button>
     </div>
