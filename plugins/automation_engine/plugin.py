@@ -1,6 +1,7 @@
 from lib.plugin_api import DashboardPlugin
 import json
 from pathlib import Path
+from .actions import webhook_action
 
 class Plugin(DashboardPlugin):
     def setup(self, context):
@@ -28,8 +29,11 @@ class Plugin(DashboardPlugin):
                     self.execute(action, event)
 
     def execute(self, action, event):
-        if action.get("type") == "log":
+        atype = action.get("type")
+        if atype == "log":
             print(f"[AUTOMATION] {event.type}: {event.payload}")
+        elif atype == "webhook":
+            webhook_action(action, event)
 
     def get_rules(self, handler=None):
         return self.rules
