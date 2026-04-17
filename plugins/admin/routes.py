@@ -1,5 +1,11 @@
 def register_routes(context):
-    from .services import get_health, get_alerts, list_plugins
+    from .services import (
+        get_health,
+        get_alerts,
+        list_plugins,
+        list_marketplace_plugins,
+        install_marketplace_plugin,
+    )
 
     context.register_route(
         "/api/admin/health",
@@ -73,6 +79,25 @@ def register_routes(context):
         methods=["POST"]
     )
 
+    context.register_route(
+        "/api/marketplace/plugins",
+        lambda handler: list_marketplace_plugins(context),
+        methods=["GET"]
+    )
+
+    def install_marketplace(handler):
+        import json
+        length = int(handler.headers.get('Content-Length', 0))
+        data = json.loads(handler.rfile.read(length))
+        pid = data.get("plugin")
+        return install_marketplace_plugin(context, pid)
+
+    context.register_route(
+        "/api/marketplace/install",
+        install_marketplace,
+        methods=["POST"]
+    )
+
     def get_ui_plugins(handler=None):
         pm = context.get_service("plugin_manager")
         if not pm:
@@ -82,7 +107,8 @@ def register_routes(context):
             "admin": {"route": "/admin", "title": "Admin"},
             "automation_engine": {"route": "/automation", "title": "Automation"},
             "kea_ha": {"route": "/kea", "title": "Kea HA"},
-            "home_assistant": {"route": "/home-assistant", "title": "Home Assistant"}
+            "home_assistant": {"route": "/home-assistant", "title": "Home Assistant"},
+            "prometheus": {"route": "/prometheus", "title": "Prometheus"}
         }
 
         return [
