@@ -1,8 +1,13 @@
-import { render as renderAdmin } from '/plugins/admin/ui/index.js';
+const routes = {};
 
-const routes = {
-  '/admin': renderAdmin
-};
+export function registerRoute(path, renderer) {
+  routes[path] = renderer;
+}
+
+export function navigate(path) {
+  window.history.pushState({}, '', path);
+  renderRoute();
+}
 
 function renderRoute() {
   const path = window.location.pathname;
@@ -11,9 +16,18 @@ function renderRoute() {
   if (routes[path]) {
     routes[path](app);
   } else {
-    app.innerHTML = '<h1>Welcome</h1><a href="/admin">Admin</a>';
+    app.innerHTML = `<h1>Kea Dashboard</h1>
+      <nav>
+        <a href="/admin" onclick="event.preventDefault(); window.navigate('/admin')">Admin</a>
+      </nav>`;
   }
 }
 
 window.addEventListener('popstate', renderRoute);
+window.navigate = navigate;
+
+// register built-in routes
+import { render as renderAdmin } from '/plugins/admin/ui/index.js';
+registerRoute('/admin', renderAdmin);
+
 renderRoute();
