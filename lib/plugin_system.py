@@ -213,6 +213,7 @@ class PluginManager:
                 plugin.manifest = manifest
                 plugin.register(self.context)
                 self.plugins[plugin_id] = plugin
+                self.context.register_service(plugin_id, plugin)
                 self.logger.info("Loaded plugin %s v%s", manifest.id, manifest.version)
             except Exception:
                 self.logger.exception("Failed to load plugin %s", plugin_id)
