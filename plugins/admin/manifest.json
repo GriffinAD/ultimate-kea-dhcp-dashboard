@@ -5,5 +5,11 @@
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
   "provides": ["plugin_admin", "plugin_status"],
-  "description": "Plugin health, status, and recent event visibility"
+  "description": "Plugin health, status, and recent event visibility",
+  "publisher": "core",
+  "trust_level": "core",
+  "capabilities": {
+    "plugin_control": true,
+    "marketplace_install": true
+  }
 }
