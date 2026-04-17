@@ -8,19 +8,19 @@ def register_routes(context):
     )
 
     context.register_route(
-        "/api/admin/health",
+        "/api/plugins/admin/health",
         lambda handler: get_health(context),
         methods=["GET"]
     )
 
     context.register_route(
-        "/api/admin/alerts",
+        "/api/plugins/admin/alerts",
         lambda handler: get_alerts(context),
         methods=["GET"]
     )
 
     context.register_route(
-        "/api/admin/plugins",
+        "/api/plugins/admin/plugins",
         lambda handler: list_plugins(context),
         methods=["GET"]
     )
@@ -32,15 +32,14 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
-        admin_manifest = pm.manifests.get("admin") if pm else None
-        context.security.require("admin", admin_manifest, "plugin_control")
+        context.require_permission("plugin.control")
         if pm:
             pm.restart_plugin(pid)
             return {"status": "restarted"}
         return {"error": "not found"}
 
     context.register_route(
-        "/api/admin/plugins/restart",
+        "/api/plugins/admin/plugins/restart",
         restart_plugin,
         methods=["POST"]
     )
@@ -52,15 +51,14 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
-        admin_manifest = pm.manifests.get("admin") if pm else None
-        context.security.require("admin", admin_manifest, "plugin_control")
+        context.require_permission("plugin.control")
         if pm:
             pm.enable_plugin(pid)
             return {"status": "enabled"}
         return {"error": "not found"}
 
     context.register_route(
-        "/api/admin/plugins/enable",
+        "/api/plugins/admin/plugins/enable",
         enable_plugin,
         methods=["POST"]
     )
@@ -72,21 +70,20 @@ def register_routes(context):
         pid = data.get("plugin")
 
         pm = context.get_service("plugin_manager")
-        admin_manifest = pm.manifests.get("admin") if pm else None
-        context.security.require("admin", admin_manifest, "plugin_control")
+        context.require_permission("plugin.control")
         if pm:
             pm.disable_plugin(pid)
             return {"status": "disabled"}
         return {"error": "not found"}
 
     context.register_route(
-        "/api/admin/plugins/disable",
+        "/api/plugins/admin/plugins/disable",
         disable_plugin,
         methods=["POST"]
     )
 
     context.register_route(
-        "/api/marketplace/plugins",
+        "/api/plugins/admin/marketplace/plugins",
         lambda handler: list_marketplace_plugins(context),
         methods=["GET"]
     )
@@ -96,13 +93,11 @@ def register_routes(context):
         length = int(handler.headers.get('Content-Length', 0))
         data = json.loads(handler.rfile.read(length))
         pid = data.get("plugin")
-        pm = context.get_service("plugin_manager")
-        admin_manifest = pm.manifests.get("admin") if pm else None
-        context.security.require("admin", admin_manifest, "marketplace_install")
+        context.require_permission("plugin.install")
         return install_marketplace_plugin(context, pid)
 
     context.register_route(
-        "/api/marketplace/install",
+        "/api/plugins/admin/marketplace/install",
         install_marketplace,
         methods=["POST"]
     )
@@ -131,7 +126,7 @@ def register_routes(context):
         ]
 
     context.register_route(
-        "/api/ui/plugins",
+        "/api/plugins/admin/ui/plugins",
         get_ui_plugins,
         methods=["GET"]
     )

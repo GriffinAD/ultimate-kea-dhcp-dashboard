@@ -1,6 +1,6 @@
 from copy import deepcopy
 import requests
-from core.plugin_api import DashboardPlugin, PluginEvent
+from core.plugin_api import DashboardPlugin
 
 
 class Plugin(DashboardPlugin):
@@ -13,7 +13,7 @@ class Plugin(DashboardPlugin):
         self.nodes = self._load_nodes()
 
         context.register_route(
-            "/api/plugins/kea-ha/status",
+            "/api/plugins/kea_ha/status",
             self.get_status
         )
 
@@ -120,52 +120,36 @@ class Plugin(DashboardPlugin):
     def _emit_events(self, cluster_status):
         previous = self.previous_cluster_status
 
-        self.context.event_bus.emit(PluginEvent(
-            type="kea.ha.status",
-            source="kea_ha",
-            payload=deepcopy(cluster_status)
-        ))
+        self.context.emit("kea.ha.status", deepcopy(cluster_status))
 
         if previous is None:
             self.previous_cluster_status = deepcopy(cluster_status)
             return
 
         if previous != cluster_status:
-            self.context.event_bus.emit(PluginEvent(
-                type="kea.ha.state_changed",
-                source="kea_ha",
-                payload={
+            self.context.emit("kea.ha.state_changed", {
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                }
-            ))
+                })
 
         previous_active = previous.get("active_node")
         current_active = cluster_status.get("active_node")
         if previous_active != current_active:
-            self.context.event_bus.emit(PluginEvent(
-                type="kea.ha.failover_detected",
-                source="kea_ha",
-                payload={
+            self.context.emit("kea.ha.failover_detected", {
                     "from": previous_active,
                     "to": current_active,
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                }
-            ))
+                })
 
         previous_partner_down = set(previous.get("partner_down_nodes", []))
         current_partner_down = set(cluster_status.get("partner_down_nodes", []))
         if current_partner_down and current_partner_down != previous_partner_down:
-            self.context.event_bus.emit(PluginEvent(
-                type="kea.ha.partner_down",
-                source="kea_ha",
-                payload={
+            self.context.emit("kea.ha.partner_down", {
                     "nodes": sorted(current_partner_down),
                     "previous": deepcopy(previous),
                     "current": deepcopy(cluster_status),
-                }
-            ))
+                })
 
         self.previous_cluster_status = deepcopy(cluster_status)
 
@@ -174,6 +158,7 @@ class Plugin(DashboardPlugin):
 
         for name, url in self.nodes.items():
             try:
+                self.context.require_permission("network.outbound")
                 response = requests.post(
                     url,
                     json={

@@ -1,4 +1,4 @@
-from core.plugin_system import DashboardPlugin
+from core.plugin_api import DashboardPlugin
 import time
 
 class Plugin(DashboardPlugin):
@@ -7,7 +7,7 @@ class Plugin(DashboardPlugin):
         self.subscribers = []
 
         context.register_route("/api/plugins/live/events", self.stream)
-        context.event_bus.subscribe("*", self.handle_event)
+        context.subscribe("*", self.handle_event)
 
     def handle_event(self, data):
         for sub in list(self.subscribers):

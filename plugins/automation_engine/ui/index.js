@@ -1,5 +1,5 @@
 async function loadRules(container) {
-  const res = await fetch('/api/automation/rules');
+  const res = await fetch('/api/plugins/automation_engine/rules');
   const rules = await res.json();
 
   container.innerHTML = `
@@ -30,7 +30,7 @@ export async function render(container) {
     const url = prompt('Webhook URL');
     if (!url) return;
 
-    await fetch('/api/automation/rules/add', {
+    await fetch('/api/plugins/automation_engine/rules/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -43,7 +43,7 @@ export async function render(container) {
   };
 
   window.deleteRule = async (index) => {
-    await fetch('/api/automation/rules/delete', {
+    await fetch('/api/plugins/automation_engine/rules/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ index })

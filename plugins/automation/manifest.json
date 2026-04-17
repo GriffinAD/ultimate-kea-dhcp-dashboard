@@ -1,9 +1,32 @@
 {
   "id": "automation",
   "name": "Automation",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
-  "provides": ["automation", "remediation"],
-  "description": "Executes automation actions for HA failover and partner-down events"
+  "description": "Executes automation actions for HA failover and partner-down events",
+  "publisher": "local",
+  "trust_level": "trusted",
+  "permissions": [
+    "network.outbound",
+    "system.exec"
+  ],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/automation/status", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/automation/rules", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/automation/rules", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/automation/test", "methods": ["POST"], "auth": "admin" }
+    ],
+    "dashboard_cards": [],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": ["*"],
+    "produces_events": ["automation.notify"]
+  },
+  "requires_services": [],
+  "depends_on": [],
+  "provides": ["automation.engine"],
+  "config_schema": "config.schema.json"
 }

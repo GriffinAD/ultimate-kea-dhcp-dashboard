@@ -1,10 +1,37 @@
 {
   "id": "home_assistant",
   "name": "Home Assistant",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
+  "description": "Send dashboard and HA events to Home Assistant via webhook",
+  "publisher": "local",
+  "trust_level": "trusted",
+  "permissions": [
+    "network.outbound",
+    "integration.home_assistant"
+  ],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/home_assistant/test", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/home_assistant/status", "methods": ["GET"], "auth": "admin" }
+    ],
+    "dashboard_cards": [],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": [
+      "kea.ha.status",
+      "kea.ha.state_changed",
+      "kea.ha.failover_detected",
+      "kea.ha.partner_down"
+    ],
+    "produces_events": []
+  },
+  "requires_services": [],
   "depends_on": [],
-  "provides": ["home_assistant_webhook", "notifications"],
-  "description": "Send dashboard and HA events to Home Assistant via webhook"
+  "provides": [
+    "notifier.home_assistant"
+  ],
+  "config_schema": "config.schema.json"
 }

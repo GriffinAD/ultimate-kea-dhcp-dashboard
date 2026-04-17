@@ -1,9 +1,9 @@
-from core.plugin_system import DashboardPlugin
+from core.plugin_api import DashboardPlugin
 
 class Plugin(DashboardPlugin):
     def register(self, context):
         self.context = context
-        context.register_route("/metrics", self.metrics)
+        context.register_route("/api/metrics", self.metrics)
 
     def metrics(self, handler=None):
         try:

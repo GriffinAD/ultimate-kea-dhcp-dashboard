@@ -1,6 +1,6 @@
 {
-  "id": "prometheus",
-  "name": "Prometheus Exporter",
+  "id": "core_enhancements",
+  "name": "Core Enhancements",
   "version": "1.0.0",
   "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
@@ -8,19 +8,17 @@
   "publisher": "core",
   "trust_level": "core",
   "permissions": [
-    "integration.prometheus"
+    "plugin.control"
   ],
   "contributes": {
-    "routes": [
-      { "path": "/api/metrics", "methods": ["GET"], "auth": "none" }
-    ],
+    "routes": [],
     "dashboard_cards": [],
     "services": [],
     "scheduled_jobs": [],
-    "consumes_events": [],
+    "consumes_events": ["plugin.failure"],
     "produces_events": []
   },
-  "requires_services": [],
-  "depends_on": ["kea_ha"],
-  "provides": ["metrics.prometheus"]
+  "requires_services": ["plugin_manager"],
+  "depends_on": [],
+  "provides": ["core.enhancements"]
 }

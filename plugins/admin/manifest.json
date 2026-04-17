@@ -1,15 +1,44 @@
 {
   "id": "admin",
   "name": "Plugin Admin",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
-  "provides": ["plugin_admin", "plugin_status"],
   "description": "Plugin health, status, and recent event visibility",
   "publisher": "core",
   "trust_level": "core",
-  "capabilities": {
-    "plugin_control": true,
-    "marketplace_install": true
-  }
+  "permissions": [
+    "plugin.control",
+    "plugin.install"
+  ],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/admin/health", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/alerts", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/plugins", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/plugins/restart", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/admin/plugins/enable", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/admin/plugins/disable", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/admin/marketplace/plugins", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/marketplace/install", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/admin/ui/plugins", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/status", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/events", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/admin/stream", "methods": ["GET"], "auth": "admin" }
+    ],
+    "dashboard_cards": [
+      { "id": "admin_overview", "title": "System Overview", "slot": "dashboard.main", "order": 0 }
+    ],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": ["*"],
+    "produces_events": []
+  },
+  "requires_services": ["plugin_manager"],
+  "depends_on": [],
+  "provides": [
+    "plugin.admin",
+    "plugin.status"
+  ]
 }

@@ -1,9 +1,36 @@
 {
   "id": "kea_ha",
   "name": "Kea HA",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
-  "provides": ["ha_status"],
-  "description": "Kea High Availability monitoring"
+  "description": "Kea High Availability monitoring",
+  "publisher": "local",
+  "trust_level": "trusted",
+  "permissions": [
+    "network.outbound",
+    "kea.read"
+  ],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/kea_ha/status", "methods": ["GET"], "auth": "admin" }
+    ],
+    "dashboard_cards": [
+      { "id": "kea_ha_status", "title": "Kea HA Status", "slot": "dashboard.main", "order": 10 }
+    ],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": [],
+    "produces_events": [
+      "kea.ha.status",
+      "kea.ha.state_changed",
+      "kea.ha.failover_detected",
+      "kea.ha.partner_down"
+    ]
+  },
+  "requires_services": ["scheduler"],
+  "depends_on": [],
+  "provides": ["kea.ha"],
+  "config_schema": "config.schema.json"
 }

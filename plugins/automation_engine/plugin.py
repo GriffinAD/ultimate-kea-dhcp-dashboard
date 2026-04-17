@@ -11,9 +11,9 @@ class Plugin(DashboardPlugin):
         self.rules = self._load_rules()
         context.subscribe("*", self.handle_event)
 
-        context.register_route("/api/automation/rules", self.get_rules)
-        context.register_route("/api/automation/rules/add", self.add_rule, methods=["POST"])
-        context.register_route("/api/automation/rules/delete", self.delete_rule, methods=["POST"])
+        context.register_route("/api/plugins/automation_engine/rules", self.get_rules)
+        context.register_route("/api/plugins/automation_engine/rules/add", self.add_rule, methods=["POST"])
+        context.register_route("/api/plugins/automation_engine/rules/delete", self.delete_rule, methods=["POST"])
 
     def _load_rules(self):
         try:

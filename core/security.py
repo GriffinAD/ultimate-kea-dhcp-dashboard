@@ -3,6 +3,31 @@ from pathlib import Path
 
 
 class SecurityManager:
+    TRUST_LEVELS = {"local", "trusted", "core"}
+
+    PERMISSION_RULES = {
+        "network.outbound": {"trusted", "core"},
+        "network.inbound": {"core"},
+        "network.scan": {"trusted", "core"},
+        "plugin.control": {"trusted", "core"},
+        "plugin.install": {"core"},
+        "plugin.disable": {"trusted", "core"},
+        "plugin.reload": {"trusted", "core"},
+        "system.exec": {"trusted", "core"},
+        "system.files.read": {"trusted", "core"},
+        "system.files.write": {"trusted", "core"},
+        "system.destructive": {"core"},
+        "kea.read": {"local", "trusted", "core"},
+        "kea.write": {"trusted", "core"},
+        "kea.ha.control": {"trusted", "core"},
+        "integration.home_assistant": {"trusted", "core"},
+        "integration.webhook": {"trusted", "core"},
+        "integration.prometheus": {"trusted", "core"},
+        "integration.mobile_push": {"trusted", "core"},
+        "secret.read": {"trusted", "core"},
+        "secret.write": {"core"},
+    }
+
     def __init__(self, root_dir, config=None):
         self.root_dir = Path(root_dir)
         self.config = config or {}
@@ -26,25 +51,45 @@ class SecurityManager:
     def get_trust_level(self, plugin_id, manifest):
         if plugin_id in self.trusted_plugins:
             return "trusted"
+
         publisher = self._manifest_value(manifest, "publisher")
         if publisher == "core":
             return "core"
-        declared = self._manifest_value(manifest, "trust_level")
-        if declared:
-            return declared
-        return "local"
 
-    def get_capabilities(self, manifest):
-        caps = self._manifest_value(manifest, "capabilities", {})
-        return caps or {}
+        declared = self._manifest_value(manifest, "trust_level", "local")
+        return declared if declared in self.TRUST_LEVELS else "local"
 
-    def require(self, plugin_id, manifest, capability):
-        caps = self.get_capabilities(manifest)
-        if not caps.get(capability, False):
-            raise PermissionError(f"{plugin_id} missing capability: {capability}")
+    def get_permissions(self, manifest):
+        permissions = self._manifest_value(manifest, "permissions", []) or []
+        return set(permissions)
+
+    def validate_permissions(self, plugin_id, manifest):
+        trust = self.get_trust_level(plugin_id, manifest)
+        permissions = self.get_permissions(manifest)
+
+        errors = []
+        for permission in permissions:
+            allowed_trusts = self.PERMISSION_RULES.get(permission)
+            if allowed_trusts is None:
+                errors.append(f"Unknown permission: {permission}")
+                continue
+            if trust not in allowed_trusts:
+                errors.append(
+                    f"{plugin_id} trust level {trust} insufficient for {permission}"
+                )
+        return errors
+
+    def require(self, plugin_id, manifest, permission):
+        permissions = self.get_permissions(manifest)
+        if permission not in permissions:
+            raise PermissionError(f"{plugin_id} missing permission: {permission}")
 
         trust = self.get_trust_level(plugin_id, manifest)
-        if capability in ["network_outbound", "plugin_control"] and trust not in ["trusted", "core"]:
-            raise PermissionError(f"{plugin_id} trust level {trust} insufficient for {capability}")
-        if capability in ["marketplace_install", "destructive"] and trust != "core":
-            raise PermissionError(f"{plugin_id} trust level {trust} insufficient for {capability}")
+        allowed_trusts = self.PERMISSION_RULES.get(permission)
+        if allowed_trusts is None:
+            raise PermissionError(f"{plugin_id} requested unknown permission: {permission}")
+
+        if trust not in allowed_trusts:
+            raise PermissionError(
+                f"{plugin_id} trust level {trust} insufficient for {permission}"
+            )

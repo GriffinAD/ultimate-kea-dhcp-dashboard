@@ -3,17 +3,28 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from core.contracts.kea_status_provider import KeaStatusProvider
+from core.contracts.metrics_provider import MetricsProvider
+from core.contracts.notification_provider import NotificationProvider
 from core.event_bus import EventBus
-from server.scheduler import Scheduler
-from core.plugin_api import PluginEvent, DashboardPlugin
+from core.manifest_normalizer import normalize_manifest
+from core.manifest_validator import validate_manifest, validation_warnings
+from core.models.plugin_manifest import PluginManifestV1
+from core.plugin_api import DashboardPlugin, PluginEvent
 from core.security import SecurityManager
-
+from server.scheduler import Scheduler
 
 DashboardPlugin = DashboardPlugin
+
+SERVICE_CONTRACTS = {
+    "notifier.home_assistant": NotificationProvider,
+    "metrics.prometheus": MetricsProvider,
+    "kea.ha": KeaStatusProvider,
+}
 
 
 @dataclass
@@ -33,37 +44,6 @@ class RouteRegistration:
     plugin_id: Optional[str] = None
 
 
-@dataclass
-class PluginManifest:
-    id: str
-    name: str
-    version: str
-    entrypoint: str
-    enabled_by_default: bool = True
-    depends_on: List[str] = field(default_factory=list)
-    provides: List[str] = field(default_factory=list)
-    description: str = ""
-    publisher: str = "local"
-    trust_level: str = "local"
-    capabilities: Dict[str, bool] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PluginManifest":
-        return cls(
-            id=data["id"],
-            name=data.get("name", data["id"]),
-            version=data.get("version", "0.1.0"),
-            entrypoint=data["entrypoint"],
-            enabled_by_default=data.get("enabled_by_default", True),
-            depends_on=list(data.get("depends_on", [])),
-            provides=list(data.get("provides", [])),
-            description=data.get("description", ""),
-            publisher=data.get("publisher", "local"),
-            trust_level=data.get("trust_level", "local"),
-            capabilities=data.get("capabilities", {}),
-        )
-
-
 class PluginContext:
     def __init__(self, *, root_dir: Path, config: dict, event_bus: EventBus) -> None:
         self.root_dir = Path(root_dir)
@@ -75,6 +55,7 @@ class PluginContext:
         self.routes: List[RouteRegistration] = []
         self.cards: List[DashboardCard] = []
         self._current_plugin: Optional[str] = None
+        self._current_manifest_obj: Optional[PluginManifestV1] = None
         self.security = SecurityManager(self.root_dir, config)
 
     @property
@@ -84,16 +65,47 @@ class PluginContext:
     def set_current_plugin(self, plugin_id: Optional[str]) -> None:
         self._current_plugin = plugin_id
 
+    def set_current_manifest(self, manifest: Optional[PluginManifestV1]) -> None:
+        self._current_manifest_obj = manifest
+
+    def require_permission(self, permission: str):
+        manifest = self._current_manifest_obj
+        plugin_id = self._current_plugin or getattr(manifest, "id", "unknown")
+        if manifest is None:
+            raise RuntimeError("No manifest available for permission check")
+        self.security.require(plugin_id, manifest, permission)
+
     def require_capability(self, capability: str):
-        pid = self._current_plugin
-        plugin = self.services.get(pid)
-        manifest = getattr(plugin, "manifest", None)
-        self.security.require(pid, manifest, capability)
+        self.require_permission(capability)
 
     def get_plugin_config(self, plugin_id: str) -> dict:
         return self._root_config.get("plugins", {}).get(plugin_id, {})
 
+    def _validate_service_contract(self, name: str, service: Any):
+        contract = SERVICE_CONTRACTS.get(name)
+        if contract is None:
+            return
+
+        missing = []
+        for attr, value in contract.__dict__.items():
+            if attr.startswith("_"):
+                continue
+            if callable(value) and not hasattr(service, attr):
+                missing.append(attr)
+        if missing:
+            raise TypeError(f"Service {name} missing contract members: {', '.join(missing)}")
+
     def register_service(self, name: str, service: Any) -> None:
+        manifest = self._current_manifest_obj
+        if self._current_plugin and manifest is not None:
+            if name not in manifest.provides:
+                raise PermissionError(
+                    f"{manifest.id} attempted undeclared service export: {name}"
+                )
+            if name in self.services and self.service_owners.get(name) != self._current_plugin:
+                raise RuntimeError(f"Service already registered by another owner: {name}")
+            self._validate_service_contract(name, service)
+
         self.services[name] = service
         if self._current_plugin:
             self.service_owners[name] = self._current_plugin
@@ -108,16 +120,74 @@ class PluginContext:
             self.service_owners.pop(name, None)
 
     def register_route(self, path: str, handler: Callable[..., Any], methods=None) -> None:
-        self.routes.append(RouteRegistration(path=path, methods=list(methods or ["GET"]), handler=handler, plugin_id=self._current_plugin))
+        manifest = self._current_manifest_obj
+        methods = list(methods or ["GET"])
+        if manifest is None:
+            raise RuntimeError("No current manifest bound during route registration")
+
+        declared = {(r.path, tuple(m.upper() for m in r.methods)) for r in manifest.contributes.routes}
+        candidate = (path, tuple(m.upper() for m in methods))
+
+        if candidate not in declared:
+            raise PermissionError(
+                f"{manifest.id} attempted undeclared route registration: {path} {methods}"
+            )
+
+        self.routes.append(
+            RouteRegistration(path=path, methods=methods, handler=handler, plugin_id=self._current_plugin)
+        )
 
     def register_dashboard_card(self, card_id: str, title: str, render=None, order: int = 100) -> None:
-        self.cards.append(DashboardCard(id=card_id, title=title, render=render, order=order, plugin_id=self._current_plugin))
+        manifest = self._current_manifest_obj
+        if manifest is None:
+            raise RuntimeError("No current manifest bound during card registration")
+
+        declared = {(c.id, c.title, c.order) for c in manifest.contributes.dashboard_cards}
+        if (card_id, title, order) not in declared:
+            raise PermissionError(
+                f"{manifest.id} attempted undeclared dashboard card registration: "
+                f"{card_id} / {title} / {order}"
+            )
+
+        self.cards.append(
+            DashboardCard(id=card_id, title=title, render=render, order=order, plugin_id=self._current_plugin)
+        )
 
     def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
+        manifest = self._current_manifest_obj
+        if manifest is None:
+            raise RuntimeError("No current manifest bound during event subscription")
+
+        declared = set(manifest.contributes.consumes_events)
+        if event_type == "*":
+            if manifest.trust_level not in {"trusted", "core"}:
+                raise PermissionError(f"{manifest.id} may not subscribe to wildcard events")
+            if "*" not in declared:
+                raise PermissionError(f"{manifest.id} did not declare wildcard event consumption")
+        elif event_type not in declared:
+            raise PermissionError(
+                f"{manifest.id} attempted undeclared event subscription: {event_type}"
+            )
+
         self.event_bus.subscribe(event_type, handler, owner=self._current_plugin)
 
     def emit(self, event_type: str, payload: dict | None = None, severity: str = "info") -> None:
-        self.event_bus.emit(PluginEvent(type=event_type, source=self._current_plugin or "system", payload=payload or {}, severity=severity))
+        manifest = self._current_manifest_obj
+        if manifest is not None:
+            declared = set(manifest.contributes.produces_events)
+            if event_type not in declared:
+                raise PermissionError(
+                    f"{manifest.id} attempted undeclared event emission: {event_type}"
+                )
+
+        self.event_bus.emit(
+            PluginEvent(
+                type=event_type,
+                source=self._current_plugin or "system",
+                payload=payload or {},
+                severity=severity,
+            )
+        )
 
 
 class PluginManager:
@@ -129,7 +199,9 @@ class PluginManager:
         self.scheduler = Scheduler(logging.getLogger("ukd.scheduler"))
         self.context = PluginContext(root_dir=self.root_dir, config=config, event_bus=self.event_bus)
         self.context.register_service("scheduler", self.scheduler)
-        self.manifests: Dict[str, PluginManifest] = {}
+        self.context.register_service("event_bus", self.event_bus)
+        self.context.register_service("plugin_manager", self)
+        self.manifests: Dict[str, PluginManifestV1] = {}
         self.plugins: Dict[str, Any] = {}
         self.blocked: Dict[str, str] = {}
         self.logger = logging.getLogger("ukd.plugins")
@@ -145,47 +217,75 @@ class PluginManager:
     def _save_state(self) -> None:
         self.state_file.write_text(json.dumps(self.plugin_state, indent=2))
 
-    def discover(self) -> Dict[str, PluginManifest]:
-        manifests = {}
+    def discover(self) -> Dict[str, PluginManifestV1]:
+        manifests: Dict[str, PluginManifestV1] = {}
         for manifest_path in self.plugins_dir.glob("*/manifest.json"):
             try:
-                data = json.loads(manifest_path.read_text())
-                manifest = PluginManifest.from_dict(data)
+                raw = json.loads(manifest_path.read_text())
+                raw, warnings = normalize_manifest(raw)
+                manifest = PluginManifestV1.from_dict(raw)
+                for warning in warnings + validation_warnings(manifest):
+                    self.logger.warning("Manifest %s: %s", manifest.id, warning)
+                errors = validate_manifest(manifest)
+                errors.extend(self.context.security.validate_permissions(manifest.id, manifest))
+                if errors:
+                    self.blocked[manifest.id] = "; ".join(errors)
+                    self.logger.warning("Blocked plugin %s: %s", manifest.id, self.blocked[manifest.id])
+                    continue
                 manifests[manifest.id] = manifest
             except Exception:
                 self.logger.exception("Failed to parse %s", manifest_path)
         self.manifests = manifests
         return manifests
 
-    def _is_allowed(self, pid: str, manifest: PluginManifest):
-        trust = self.context.security.get_trust_level(pid, manifest)
-        caps = manifest.capabilities or {}
+    def _resolve_load_order(self) -> list[str]:
+        manifests = self.manifests
+        visited = {}
+        order = []
 
-        if trust == "local" and caps.get("network_outbound"):
-            return False, "untrusted plugin with outbound network"
-        if trust != "core" and caps.get("marketplace_install"):
-            return False, "only core plugins can install plugins"
-        if trust not in ["trusted", "core"] and caps.get("plugin_control"):
-            return False, "insufficient trust for plugin control"
-        if trust != "core" and caps.get("destructive"):
-            return False, "destructive capability requires core trust"
+        def visit(pid: str):
+            state = visited.get(pid)
+            if state == "temp":
+                raise ValueError(f"Dependency cycle detected at {pid}")
+            if state == "perm":
+                return
+            if pid not in manifests:
+                raise ValueError(f"Missing dependency: {pid}")
 
-        return True, None
+            visited[pid] = "temp"
+            for dep in manifests[pid].depends_on:
+                visit(dep)
+            visited[pid] = "perm"
+            order.append(pid)
 
-    def _load_module(self, manifest: PluginManifest):
+        for pid in manifests:
+            visit(pid)
+
+        return order
+
+    def _check_required_services(self, manifest) -> list[str]:
+        missing = []
+        for name in manifest.requires_services:
+            if self.context.get_service(name) is None:
+                missing.append(name)
+        return missing
+
+    def _load_module(self, manifest: PluginManifestV1):
         module_path, _, class_name = manifest.entrypoint.partition(":")
         file_path = self.plugins_dir / manifest.id / f"{module_path}.py"
         spec = importlib.util.spec_from_file_location(f"plugin_{manifest.id}", file_path)
         module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
         spec.loader.exec_module(module)
         return getattr(module, class_name)
 
-    def _load_single_plugin(self, pid: str, manifest: PluginManifest) -> bool:
+    def _load_single_plugin(self, pid: str, manifest: PluginManifestV1) -> bool:
         if pid in self.plugins:
             return True
 
-        allowed, reason = self._is_allowed(pid, manifest)
-        if not allowed:
+        missing_services = self._check_required_services(manifest)
+        if missing_services:
+            reason = f"missing required services: {', '.join(missing_services)}"
             self.blocked[pid] = reason
             self.logger.warning("Blocked plugin %s: %s", pid, reason)
             return False
@@ -196,28 +296,44 @@ class PluginManager:
             plugin.manifest = manifest
 
             self.context.set_current_plugin(pid)
+            self.context.set_current_manifest(manifest)
             if hasattr(plugin, "setup"):
                 plugin.setup(self.context)
             else:
                 plugin.register(self.context)
             self.context.set_current_plugin(None)
+            self.context.set_current_manifest(None)
 
             self.plugins[pid] = plugin
-            self.context.register_service(pid, plugin)
+            self.context.services[pid] = plugin
+            self.context.service_owners[pid] = pid
+
             try:
                 plugin.start()
             except Exception:
                 self.logger.exception("Start failed %s", pid)
+
             self.blocked.pop(pid, None)
             self.logger.info("Loaded %s", pid)
             return True
-        except Exception:
+        except Exception as exc:
             self.context.set_current_plugin(None)
+            self.context.set_current_manifest(None)
+            self.blocked[pid] = str(exc)
             self.logger.exception("Failed plugin %s", pid)
             return False
 
     def load_enabled_plugins(self):
-        for pid, manifest in self.manifests.items():
+        try:
+            load_order = self._resolve_load_order()
+        except Exception as exc:
+            self.logger.exception("Failed to resolve plugin load order")
+            for pid in self.manifests:
+                self.blocked[pid] = f"dependency resolution failed: {exc}"
+            return
+
+        for pid in load_order:
+            manifest = self.manifests[pid]
             enabled = self.plugin_state.get(pid, manifest.enabled_by_default)
             if enabled:
                 self._load_single_plugin(pid, manifest)
@@ -307,7 +423,7 @@ class PluginManager:
                 "description": manifest.description,
                 "provides": manifest.provides,
                 "trust": self.context.security.get_trust_level(manifest.id, manifest),
-                "capabilities": manifest.capabilities,
+                "permissions": manifest.permissions,
                 "blocked": self.blocked.get(manifest.id),
                 "health": health,
             })

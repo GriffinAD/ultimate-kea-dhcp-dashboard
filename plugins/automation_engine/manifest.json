@@ -1,13 +1,28 @@
 {
   "id": "automation_engine",
   "name": "Automation Engine",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
   "publisher": "local",
   "trust_level": "trusted",
-  "capabilities": {
-    "network_outbound": true,
-    "automation_execute": true
-  }
+  "permissions": [
+    "network.outbound"
+  ],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/automation_engine/rules", "methods": ["GET"], "auth": "admin" },
+      { "path": "/api/plugins/automation_engine/rules/add", "methods": ["POST"], "auth": "admin" },
+      { "path": "/api/plugins/automation_engine/rules/delete", "methods": ["POST"], "auth": "admin" }
+    ],
+    "dashboard_cards": [],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": ["*"],
+    "produces_events": []
+  },
+  "requires_services": [],
+  "depends_on": [],
+  "provides": ["automation.engine"]
 }

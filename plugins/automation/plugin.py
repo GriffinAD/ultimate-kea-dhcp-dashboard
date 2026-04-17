@@ -31,7 +31,7 @@ class Plugin(DashboardPlugin):
             "emit": self._action_emit,
         }
 
-        self._subscribe_rules()
+        context.subscribe("*", self._handle_event)
 
         context.register_route("/api/plugins/automation/status", self.get_status, ["GET"])
         context.register_route("/api/plugins/automation/rules", self.get_rules, ["GET"])
@@ -52,14 +52,6 @@ class Plugin(DashboardPlugin):
 
     def _persist_rules(self):
         self.rules_file.write_text(json.dumps(self.rules, indent=2), encoding="utf-8")
-
-    def _subscribe_rules(self):
-        seen = set()
-        for rule in self.rules:
-            event_type = rule.get("when")
-            if event_type and event_type not in seen:
-                self.context.subscribe(event_type, self._handle_event)
-                seen.add(event_type)
 
     def get_status(self, handler=None):
         return {
@@ -98,7 +90,7 @@ class Plugin(DashboardPlugin):
             self.cooldown = int(payload.get("cooldown"))
 
         self._persist_rules()
-        self._subscribe_rules()
+        context.subscribe("*", self._handle_event)
         self.set_healthy("Rules saved", rules=len(self.rules))
         return self.get_rules()
 
@@ -299,6 +291,7 @@ class Plugin(DashboardPlugin):
             "data": event.payload,
         }
 
+        self.context.require_permission("network.outbound")
         response = requests.post(url, json=payload, timeout=3)
         response.raise_for_status()
         return {"status": response.status_code}
@@ -308,6 +301,7 @@ class Plugin(DashboardPlugin):
         if not command:
             raise ValueError("command action missing command")
 
+        self.context.require_permission("system.exec")
         subprocess.Popen(command, shell=True)
         return {"status": "started"}
 

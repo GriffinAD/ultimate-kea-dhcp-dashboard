@@ -34,19 +34,19 @@ class Plugin(DashboardPlugin):
         self.delivery_failures = {}
 
         context.register_route(
-            "/api/plugins/home-assistant/test",
+            "/api/plugins/home_assistant/test",
             self.send_test
         )
         context.register_route(
-            "/api/plugins/home-assistant/status",
+            "/api/plugins/home_assistant/status",
             self.get_status
         )
 
         if self.send_status_events:
-            context.event_bus.subscribe("kea.ha.status", self.handle_ha_status)
-        context.event_bus.subscribe("kea.ha.state_changed", self.handle_state_changed)
-        context.event_bus.subscribe("kea.ha.failover_detected", self.handle_failover)
-        context.event_bus.subscribe("kea.ha.partner_down", self.handle_partner_down)
+            context.subscribe("kea.ha.status", self.handle_ha_status)
+        context.subscribe("kea.ha.state_changed", self.handle_state_changed)
+        context.subscribe("kea.ha.failover_detected", self.handle_failover)
+        context.subscribe("kea.ha.partner_down", self.handle_partner_down)
 
         self.set_healthy("Configured", configured=bool(self.webhook_url))
 
@@ -160,6 +160,7 @@ class Plugin(DashboardPlugin):
         last_error = None
         for attempt in range(1, self.retry_count + 1):
             try:
+                self.context.require_permission("network.outbound")
                 response = requests.post(destination, json=payload, timeout=3)
                 response.raise_for_status()
                 return {

@@ -1,9 +1,24 @@
 {
   "id": "live",
   "name": "Live Events",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "plugin_api_version": "1.0",
   "entrypoint": "plugin:Plugin",
   "enabled_by_default": true,
-  "provides": ["live_events"],
-  "description": "Server-sent events stream for real-time updates"
+  "publisher": "local",
+  "trust_level": "trusted",
+  "permissions": [],
+  "contributes": {
+    "routes": [
+      { "path": "/api/plugins/live/events", "methods": ["GET"], "auth": "admin" }
+    ],
+    "dashboard_cards": [],
+    "services": [],
+    "scheduled_jobs": [],
+    "consumes_events": ["*"],
+    "produces_events": []
+  },
+  "requires_services": [],
+  "depends_on": [],
+  "provides": ["live.events"]
 }

@@ -2,7 +2,7 @@ import requests
 
 def webhook_action(action, event, context, manifest):
     # 🔐 enforce security
-    context.security.require("automation_engine", manifest, "network_outbound")
+    context.require_permission("network.outbound")
 
     url = action.get("url")
     if not url:
