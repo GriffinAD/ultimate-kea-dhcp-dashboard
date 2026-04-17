@@ -1,5 +1,7 @@
+import json
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -16,7 +18,9 @@ class Plugin(DashboardPlugin):
         self.enabled = bool(cfg.get("enabled", context.config.get("automation_enabled", False)))
         self.dry_run = bool(cfg.get("dry_run", context.config.get("automation_dry_run", True)))
         self.cooldown = int(cfg.get("cooldown", context.config.get("automation_cooldown", 60)))
-        self.rules = cfg.get("rules", [])
+        self.rules_file = Path(self.context.root_dir) / "data" / "automation-rules.json"
+        self.rules_file.parent.mkdir(parents=True, exist_ok=True)
+        self.rules = self._load_rules(cfg)
         self.last_run = {}
         self.execution_history = []
 
@@ -27,12 +31,35 @@ class Plugin(DashboardPlugin):
             "emit": self._action_emit,
         }
 
+        self._subscribe_rules()
+
+        context.register_route("/api/plugins/automation/status", self.get_status, ["GET"])
+        context.register_route("/api/plugins/automation/rules", self.get_rules, ["GET"])
+        context.register_route("/api/plugins/automation/rules", self.save_rules, ["POST"])
+        context.register_route("/api/plugins/automation/test", self.test_rule, ["POST"])
+
+        self.set_healthy("Automation ready", rules=len(self.rules), rules_file=str(self.rules_file))
+
+    def _load_rules(self, cfg):
+        if self.rules_file.exists():
+            try:
+                data = json.loads(self.rules_file.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return data
+            except Exception as exc:
+                self.set_degraded("Failed to load persisted rules", error=str(exc))
+        return cfg.get("rules", [])
+
+    def _persist_rules(self):
+        self.rules_file.write_text(json.dumps(self.rules, indent=2), encoding="utf-8")
+
+    def _subscribe_rules(self):
+        seen = set()
         for rule in self.rules:
             event_type = rule.get("when")
-            if event_type:
-                context.subscribe(event_type, self._handle_event)
-
-        self.set_healthy("Automation ready", rules=len(self.rules))
+            if event_type and event_type not in seen:
+                self.context.subscribe(event_type, self._handle_event)
+                seen.add(event_type)
 
     def get_status(self, handler=None):
         return {
@@ -40,8 +67,72 @@ class Plugin(DashboardPlugin):
             "dry_run": self.dry_run,
             "cooldown": self.cooldown,
             "rules": len(self.rules),
+            "rules_file": str(self.rules_file),
             "history": self.execution_history[-20:],
             "health": self.health().__dict__,
+        }
+
+    def get_rules(self, handler=None):
+        return {
+            "rules": self.rules,
+            "enabled": self.enabled,
+            "dry_run": self.dry_run,
+            "cooldown": self.cooldown,
+        }
+
+    def save_rules(self, handler):
+        length = int(handler.headers.get("Content-Length", 0))
+        body = handler.rfile.read(length) if length > 0 else b"{}"
+        payload = json.loads(body.decode("utf-8"))
+
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            raise ValueError("rules must be a list")
+
+        self.rules = rules
+        if "enabled" in payload:
+            self.enabled = bool(payload.get("enabled"))
+        if "dry_run" in payload:
+            self.dry_run = bool(payload.get("dry_run"))
+        if "cooldown" in payload:
+            self.cooldown = int(payload.get("cooldown"))
+
+        self._persist_rules()
+        self._subscribe_rules()
+        self.set_healthy("Rules saved", rules=len(self.rules))
+        return self.get_rules()
+
+    def test_rule(self, handler):
+        length = int(handler.headers.get("Content-Length", 0))
+        body = handler.rfile.read(length) if length > 0 else b"{}"
+        payload = json.loads(body.decode("utf-8"))
+
+        rule = payload.get("rule")
+        event_type = payload.get("event_type") or (rule or {}).get("when") or "automation.test"
+        event_payload = payload.get("event_payload") or {}
+        event_severity = payload.get("event_severity", "info")
+
+        if not isinstance(rule, dict):
+            raise ValueError("rule must be an object")
+
+        event = PluginEvent(
+            type=event_type,
+            source="admin_test",
+            payload=event_payload,
+            severity=event_severity,
+        )
+
+        matched = self._rule_matches(rule, event)
+        actions = self._normalize_actions(rule)
+        return {
+            "matched": matched,
+            "event": {
+                "type": event.type,
+                "source": event.source,
+                "severity": event.severity,
+                "payload": event.payload,
+            },
+            "actions": actions,
         }
 
     def _cooldown_ok(self, key):
@@ -72,18 +163,24 @@ class Plugin(DashboardPlugin):
     def _rule_matches(self, rule: dict[str, Any], event: PluginEvent) -> bool:
         conditions = rule.get("if") or rule.get("conditions") or []
         if isinstance(conditions, dict):
+            if "all" in conditions:
+                return all(self._condition_matches(item, event) for item in conditions.get("all", []))
+            if "any" in conditions:
+                return any(self._condition_matches(item, event) for item in conditions.get("any", []))
             conditions = [conditions]
 
         for condition in conditions:
-            path = condition.get("path")
-            op = condition.get("op", "eq")
-            expected = condition.get("value")
-            actual = self._get_value(event, path)
-
-            if not self._evaluate_condition(actual, op, expected):
+            if not self._condition_matches(condition, event):
                 return False
 
         return True
+
+    def _condition_matches(self, condition: dict[str, Any], event: PluginEvent) -> bool:
+        path = condition.get("path")
+        op = condition.get("op", "eq")
+        expected = condition.get("value")
+        actual = self._get_value(event, path)
+        return self._evaluate_condition(actual, op, expected)
 
     def _get_value(self, event: PluginEvent, path: str | None):
         if not path:
