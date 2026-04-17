@@ -1,1 +1,1 @@
-from lib.plugin_runtime import *
+from core.plugin_runtime import *

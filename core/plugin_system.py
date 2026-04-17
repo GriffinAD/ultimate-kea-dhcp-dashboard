@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from lib.event_bus import EventBus
-from lib.scheduler import Scheduler
-from lib.plugin_api import PluginEvent, DashboardPlugin
+from core.event_bus import EventBus
+from server.scheduler import Scheduler
+from core.plugin_api import PluginEvent, DashboardPlugin
 from core.security import SecurityManager
 
 

@@ -1,4 +1,4 @@
-from lib.plugin_api import DashboardPlugin
+from core.plugin_api import DashboardPlugin
 
 class Plugin(DashboardPlugin):
     def setup(self, context):

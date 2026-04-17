@@ -286,18 +286,28 @@ install_files() {
     
     # Create directories
     print_info "Creating directories..."
-    mkdir -p "$INSTALL_DIR"/{bin,lib,static/{css,js},data,logs,etc}
+    mkdir -p "$INSTALL_DIR"/{bin,core,server,ui,assets,plugins,data,logs,etc}
     mkdir -p "$CONFIG_DIR"
-    
+
     # Copy files
     print_info "Copying application files..."
     cp -r bin/* "$INSTALL_DIR/bin/"
-    cp -r lib/* "$INSTALL_DIR/lib/"
-    cp -r static/* "$INSTALL_DIR/static/"
+    cp -r core/* "$INSTALL_DIR/core/"
+    cp -r server/* "$INSTALL_DIR/server/"
+    cp -r ui/* "$INSTALL_DIR/ui/"
+    if [[ -d assets ]]; then
+        cp -r assets/* "$INSTALL_DIR/assets/"
+    fi
+    if [[ -d plugins ]]; then
+        cp -r plugins/* "$INSTALL_DIR/plugins/"
+    fi
     cp -r data/* "$INSTALL_DIR/data/"
     cp start.sh "$INSTALL_DIR/"
-    
+
     chmod +x "$INSTALL_DIR/bin/ultimate-kea-dashboard"
+    if [[ -f "$INSTALL_DIR/bin/ultimate-kea-dashboard-plugin" ]]; then
+        chmod +x "$INSTALL_DIR/bin/ultimate-kea-dashboard-plugin"
+    fi
     chmod +x "$INSTALL_DIR/start.sh"
     
     print_success "Files installed to $INSTALL_DIR"

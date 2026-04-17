@@ -26,22 +26,22 @@ from html import escape
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Add lib directory to path (relative to script location)
+# Add repo root to path so core/, server/ and ui/ packages resolve
 SCRIPT_DIR = Path(__file__).parent.parent.absolute()
-sys.path.insert(0, str(SCRIPT_DIR / 'lib'))
-from themes import THEMES, get_theme_css
-from stats import get_system_stats
-from network_scanner import (
-    scan_network_host, 
+sys.path.insert(0, str(SCRIPT_DIR))
+from ui.themes.theme_registry import THEMES, get_theme_css
+from server.stats import get_system_stats
+from server.discovery.network_scanner import (
+    scan_network_host,
     scan_static_device_enhanced,
     get_snmp_sysDescr,
     get_snmp_system_info,
     ping_host
 )
-from device_detection import get_device_type, format_service_link, SERVICE_ICONS
-from mac_vendor import get_mac_vendor
-from translations import TRANSLATIONS, get_translation, get_supported_languages, get_language_name
-import custom_devices
+from server.discovery.device_detection import get_device_type, format_service_link, SERVICE_ICONS
+from server.discovery.mac_vendor import get_mac_vendor
+from ui.i18n.translations import TRANSLATIONS, get_translation, get_supported_languages, get_language_name
+from server.discovery import custom_devices
 
 # Default configuration
 CONFIG_PATHS = [
@@ -307,7 +307,7 @@ def network_scanner_thread():
                                         snmp_info = cached['data']
                                     else:
                                         # Cache miss or expired - fetch new SNMP data
-                                        from network_scanner import get_snmp_system_info
+                                        from server.discovery.network_scanner import get_snmp_system_info
                                         snmp_info = get_snmp_system_info(ip, snmp_communities, timeout=1)
                                         if snmp_info:
                                             SNMP_CACHE[ip] = {
@@ -1082,8 +1082,7 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             
             try:
-                sys.path.insert(0, str(SCRIPT_DIR / 'lib'))
-                from update_checker import check_for_updates
+                from server.update_checker import check_for_updates
                 update_info = check_for_updates()
                 self.wfile.write(json.dumps(update_info).encode())
             except Exception as e:
@@ -1103,8 +1102,7 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             
             try:
-                sys.path.insert(0, str(SCRIPT_DIR / 'lib'))
-                from update_checker import perform_update
+                from server.update_checker import perform_update
                 result = perform_update()
                 self.wfile.write(json.dumps(result).encode())
             except Exception as e:
@@ -1126,7 +1124,7 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
         elif parsed.path.startswith("/api/icons/"):
             # API endpoint for theme icons
             theme_name = parsed.path.split("/")[-1]
-            icon_file = SCRIPT_DIR / "static" / "icons" / f"theme-icons-{theme_name}.json"
+            icon_file = SCRIPT_DIR / "assets" / "icons" / f"theme-icons-{theme_name}.json"
             
             if icon_file.exists():
                 self.send_response(200)
@@ -1139,23 +1137,42 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-        elif parsed.path.startswith("/static/") or parsed.path.startswith("/data/"):
-            # Serve static files
-            file_path = parsed.path[1:]  # Remove leading /
-            full_path = os.path.join(str(SCRIPT_DIR), file_path)
-            
-            if os.path.isfile(full_path):
-                self.send_response(200)
-                if file_path.endswith('.js'):
-                    self.send_header("Content-type", "application/javascript")
-                elif file_path.endswith('.css'):
-                    self.send_header("Content-type", "text/css")
-                elif file_path.endswith('.json'):
-                    self.send_header("Content-type", "application/json")
-                else:
-                    self.send_header("Content-type", "text/plain")
+        elif (
+            parsed.path.startswith("/ui/")
+            or parsed.path.startswith("/assets/")
+            or parsed.path.startswith("/data/")
+        ):
+            rel_path = parsed.path.lstrip("/")
+            safe_root = str(SCRIPT_DIR)
+            full_path = os.path.realpath(os.path.join(safe_root, rel_path))
+
+            if not full_path.startswith(safe_root + os.sep):
+                self.send_response(403)
                 self.end_headers()
-                
+            elif os.path.isfile(full_path):
+                mime_map = {
+                    '.js': 'application/javascript',
+                    '.mjs': 'application/javascript',
+                    '.css': 'text/css',
+                    '.json': 'application/json',
+                    '.html': 'text/html; charset=utf-8',
+                    '.svg': 'image/svg+xml',
+                    '.png': 'image/png',
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.gif': 'image/gif',
+                    '.ico': 'image/x-icon',
+                    '.woff': 'font/woff',
+                    '.woff2': 'font/woff2',
+                    '.ttf': 'font/ttf',
+                    '.otf': 'font/otf',
+                    '.map': 'application/json',
+                }
+                _, ext = os.path.splitext(full_path)
+                self.send_response(200)
+                self.send_header("Content-type", mime_map.get(ext.lower(), "application/octet-stream"))
+                self.end_headers()
+
                 with open(full_path, 'rb') as f:
                     self.wfile.write(f.read())
             else:
@@ -2258,7 +2275,7 @@ def generate_html(info, lang="fr"):
             </div>
         </footer>
         
-        <script src="/static/js/gauges.js"></script>
+        <script src="/ui/components/gauges.js"></script>
         <script>
             // Settings and state management
             const REFRESH_INTERVAL = 1000; // Kept for compatibility, but now using settings.refreshInterval

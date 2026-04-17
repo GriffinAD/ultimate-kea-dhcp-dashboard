@@ -1,1 +1,1 @@
-from lib.plugin_health import *
+from core.plugin_health import *

@@ -1,6 +1,6 @@
 """Device type detection and classification"""
 
-import custom_devices
+from . import custom_devices
 
 
 SERVICE_ICONS = {

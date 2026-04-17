@@ -1,1 +1,1 @@
-from lib.plugin_system import *
+from core.plugin_system import *

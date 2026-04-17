@@ -1,4 +1,4 @@
-from lib.plugin_api import DashboardPlugin, PluginEvent
+from core.plugin_api import DashboardPlugin, PluginEvent
 import json
 import time
 from .routes import register_routes

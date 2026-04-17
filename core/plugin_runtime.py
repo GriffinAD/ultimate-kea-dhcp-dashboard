@@ -7,9 +7,9 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
-from plugin_system import PluginManager
-from lib.plugin_health import PluginHealth
-from lib.alerts import Alerts
+from core.plugin_system import PluginManager
+from core.plugin_health import PluginHealth
+from server.alerts import Alerts
 
 
 LOGGER = logging.getLogger("ukd.plugin_runtime")
