@@ -6,7 +6,6 @@ import runpy
 import threading
 import time
 from pathlib import Path
-from types import FunctionType
 from urllib.parse import urlparse
 
 from plugin_system import PluginManager
@@ -80,6 +79,9 @@ class PluginRuntime:
                 handler.send_header("Content-type", "application/json; charset=utf-8")
                 handler.end_headers()
                 handler.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+                return True
+
+            if isinstance(result, dict) and result.get("_plugin_handled"):
                 return True
 
             if isinstance(result, str):
