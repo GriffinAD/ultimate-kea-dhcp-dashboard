@@ -30,14 +30,12 @@ cd "$PACKAGING_DIR"
 
 ARTIFACTS=( *.deb *.rpm *.pkg.tar.zst )
 
-# Generate checksums
 for file in "${ARTIFACTS[@]}"; do
   if [[ -f "$file" ]]; then
     sha256sum "$file" > "$file.sha256"
   fi
 done
 
-# Optional signing
 if [[ "$DO_SIGN" == true ]]; then
   for file in "${ARTIFACTS[@]}"; do
     if [[ -f "$file" ]]; then
@@ -46,16 +44,13 @@ if [[ "$DO_SIGN" == true ]]; then
   done
 fi
 
-# Generate release notes
 "$PACKAGING_DIR/generate-release-notes.sh"
 
-# Optional Docker
 if [ "$DO_DOCKER" = true ]; then
-  docker build -t ultimate-kea-dashboard:$FULL_VERSION "$ROOT_DIR"
+  docker build -f packaging/docker/Dockerfile -t ultimate-kea-dashboard:$FULL_VERSION "$ROOT_DIR"
   docker tag ultimate-kea-dashboard:$FULL_VERSION ultimate-kea-dashboard:latest
 fi
 
-# Optional Git tag
 if [ "$DO_TAG" = true ]; then
   git tag "v$FULL_VERSION"
   git push origin "v$FULL_VERSION"
