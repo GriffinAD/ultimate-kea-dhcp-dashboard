@@ -5,7 +5,7 @@ export async function render(container) {
   `;
 
   try {
-    const res = await fetch('/api/plugins/kea-ha/status');
+    const res = await fetch('/api/plugins/kea_ha/status');
     const data = await res.json();
     const nodes = data.nodes || {};
     const active = data.active_node || 'Unknown';

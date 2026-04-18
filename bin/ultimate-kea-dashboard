@@ -1149,7 +1149,9 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
             if full_path != safe_root and not full_path.startswith(safe_root + os.sep):
                 self.send_response(403)
                 self.end_headers()
-            elif os.path.isfile(full_path):
+                return
+
+            if os.path.isfile(full_path):
                 mime_map = {
                     '.js': 'application/javascript',
                     '.mjs': 'application/javascript',

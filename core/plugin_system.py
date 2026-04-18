@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import logging
@@ -82,6 +83,10 @@ class PluginContext:
         return self._plugin_manifests.get(plugin_id, self._current_manifest_obj)
 
     def _wrap_with_plugin_context(self, plugin_id: Optional[str], manifest: Optional[PluginManifestV1], fn):
+        if fn is None:
+            return None
+
+        @functools.wraps(fn)
         def wrapped(*args, **kwargs):
             prev_plugin = self._current_plugin
             prev_manifest = self._current_manifest_obj
@@ -92,6 +97,8 @@ class PluginContext:
             finally:
                 self._current_plugin = prev_plugin
                 self._current_manifest_obj = prev_manifest
+
+        wrapped.__wrapped_plugin_id__ = plugin_id
         return wrapped
 
     def require_permission(self, permission: str):

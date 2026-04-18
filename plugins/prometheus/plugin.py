@@ -6,20 +6,14 @@ class Plugin(DashboardPlugin):
         context.register_route("/api/metrics", self.metrics)
 
     def metrics(self, handler=None):
-        try:
-            kea = self.context.get_service("kea_ha")
-        except Exception:
-            kea = None
+        kea = self.context.get_service("kea_ha")
 
-        # basic fallback: call API route directly if no service yet
         status = {}
-        try:
-            from plugins.kea_ha.plugin import Plugin as KeaPlugin
-            kea_plugin = KeaPlugin()
-            kea_plugin.context = self.context
-            status = kea_plugin.get_status()
-        except Exception:
-            pass
+        if kea is not None:
+            try:
+                status = kea.get_status() or {}
+            except Exception:
+                status = {}
 
         lines = []
 

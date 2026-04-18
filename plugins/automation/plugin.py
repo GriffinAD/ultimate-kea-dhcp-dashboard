@@ -319,6 +319,15 @@ class Plugin(DashboardPlugin):
         if not event_name:
             raise ValueError("emit action missing event")
 
+        declared = set(
+            getattr(getattr(self.manifest, "contributes", None), "produces_events", []) or []
+        )
+        if event_name not in declared:
+            raise ValueError(
+                f"emit action refused: '{event_name}' is not declared in the automation "
+                f"plugin's produces_events. Declared events: {sorted(declared) or ['(none)']}"
+            )
+
         payload = action.get("payload") or event.payload
         severity = action.get("severity", event.severity)
         self.context.emit(event_name, payload, severity=severity)

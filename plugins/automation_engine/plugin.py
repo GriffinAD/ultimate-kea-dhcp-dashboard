@@ -5,7 +5,7 @@ from .actions import webhook_action
 
 class Plugin(DashboardPlugin):
     def setup(self, context):
-        self.context = context
+        super().setup(context)
         self.manifest = getattr(self, "manifest", None)
         self.rules_path = Path(__file__).parent / "rules.json"
         self.rules = self._load_rules()
