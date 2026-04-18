@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-
 from core.policy import PolicyEngine
+
 
 class SecurityManager:
     TRUST_LEVELS = {"local", "trusted", "core"}
@@ -40,85 +40,31 @@ class SecurityManager:
     def _load_trusted_plugins(self):
         try:
             data = json.loads(self.trusted_plugins_path.read_text())
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- set(data)
+            return set(data)
         except Exception:
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- set()
+            return set()
 
     def _manifest_value(self, manifest, name, default=None):
         if manifest is None:
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- default
+            return default
         if isinstance(manifest, dict):
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- manifest.get(name, default)
-        
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- getattr(manifest, name, default)
+            return manifest.get(name, default)
+        return getattr(manifest, name, default)
 
     def get_trust_level(self, plugin_id, manifest):
         if plugin_id in self.trusted_plugins:
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- "trusted"
+            return "trusted"
 
         publisher = self._manifest_value(manifest, "publisher")
         if publisher == "core":
-            
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- "core"
+            return "core"
 
         declared = self._manifest_value(manifest, "trust_level", "local")
-        
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- declared if declared in self.TRUST_LEVELS else "local"
+        return declared if declared in self.TRUST_LEVELS else "local"
 
     def get_permissions(self, manifest):
         permissions = self._manifest_value(manifest, "permissions", []) or []
-        
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- set(permissions)
+        return set(permissions)
 
     def validate_permissions(self, plugin_id, manifest):
         trust = self.get_trust_level(plugin_id, manifest)
@@ -134,13 +80,9 @@ class SecurityManager:
                 errors.append(
                     f"{plugin_id} trust level {trust} insufficient for {permission}"
                 )
-        
-        # policy enforcement
-        if not self.policy.is_permission_allowed(plugin_id, permission):
-            raise PermissionError(f"{plugin_id} blocked by policy for {permission}")
-
-        return
- errors
+            if not self.policy.is_permission_allowed(plugin_id, permission):
+                errors.append(f"{plugin_id} blocked by policy for permission: {permission}")
+        return errors
 
     def require(self, plugin_id, manifest, permission):
         permissions = self.get_permissions(manifest)
