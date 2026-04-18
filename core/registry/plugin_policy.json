@@ -1,0 +1,23 @@
+{
+  "runtime_mode": "production",
+  "deny_permissions": [
+    "system.destructive"
+  ],
+  "plugin_overrides": {
+    "home_assistant": {
+      "allow_hosts": [
+        "homeassistant.local",
+        "192.168.2.*"
+      ]
+    },
+    "automation": {
+      "allow_permissions": [
+        "system.exec",
+        "network.outbound"
+      ],
+      "allowed_commands": [
+        "/usr/bin/systemctl restart kea-dhcp4"
+      ]
+    }
+  }
+}

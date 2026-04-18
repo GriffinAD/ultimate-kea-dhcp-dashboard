@@ -16,6 +16,11 @@ from core.manifest_validator import validate_manifest, validation_warnings
 from core.models.plugin_manifest import PluginManifestV1
 from core.plugin_api import DashboardPlugin, PluginEvent
 from core.security import SecurityManager
+from core.audit import AuditLogger
+from core.reviews import ReviewRegistry
+from core.approval import ApprovalRegistry
+from core.quarantine import QuarantineRegistry
+from core.lifecycle import LifecycleRegistry
 from server.scheduler import Scheduler
 
 DashboardPlugin = DashboardPlugin
@@ -69,6 +74,18 @@ class PluginContext:
         self._current_manifest_obj = manifest
 
     def require_permission(self, permission: str):
+        manifest = self._current_manifest_obj
+        plugin_id = self._current_plugin or getattr(manifest, "id", "unknown")
+
+        try:
+            self.security.require(plugin_id, manifest, permission)
+            if hasattr(self, "audit"):
+                self.audit.log(plugin_id, permission, "permission_check", None, "allowed")
+        except Exception:
+            if hasattr(self, "audit"):
+                self.audit.log(plugin_id, permission, "permission_check", None, "denied")
+            raise
+
         manifest = self._current_manifest_obj
         plugin_id = self._current_plugin or getattr(manifest, "id", "unknown")
         if manifest is None:
@@ -197,6 +214,16 @@ class PluginManager:
         self.config = config
         self.event_bus = EventBus(logging.getLogger("ukd.events"))
         self.scheduler = Scheduler(logging.getLogger("ukd.scheduler"))
+        self.context = PluginContext(
+        )
+        self.audit = AuditLogger(self.root_dir)
+        self.reviews = ReviewRegistry(self.root_dir)
+        self.approvals = ApprovalRegistry(self.root_dir)
+        self.quarantine = QuarantineRegistrself.root_dir)
+        self.lifecycle = LifecycleRegistry()
+
+        self.context.audit = self.audit
+
         self.context = PluginContext(root_dir=self.root_dir, config=config, event_bus=self.event_bus)
         self.context.register_service("scheduler", self.scheduler)
         self.context.register_service("event_bus", self.event_bus)
@@ -280,7 +307,9 @@ class PluginManager:
         return getattr(module, class_name)
 
     def _load_single_plugin(self, pid: str, manifest: PluginManifestV1) -> bool:
+        self.lifecycle.set(pid, "loading")
         if pid in self.plugins:
+            self.lifecycle.set(pid, "running")
             return True
 
         missing_services = self._check_required_services(manifest)
@@ -288,6 +317,7 @@ class PluginManager:
             reason = f"missing required services: {', '.join(missing_services)}"
             self.blocked[pid] = reason
             self.logger.warning("Blocked plugin %s: %s", pid, reason)
+            self.lifecycle.set(pid, "failed")
             return False
 
         try:
@@ -315,12 +345,14 @@ class PluginManager:
 
             self.blocked.pop(pid, None)
             self.logger.info("Loaded %s", pid)
+            self.lifecycle.set(pid, "running")
             return True
         except Exception as exc:
             self.context.set_current_plugin(None)
             self.context.set_current_manifest(None)
             self.blocked[pid] = str(exc)
             self.logger.exception("Failed plugin %s", pid)
+            self.lifecycle.set(pid, "failed")
             return False
 
     def load_enabled_plugins(self):
@@ -333,6 +365,9 @@ class PluginManager:
             return
 
         for pid in load_order:
+            if self.quarantine.is_quarantined(pid):
+                self.blocked[pid] = "quarantined"
+                continue
             manifest = self.manifests[pid]
             enabled = self.plugin_state.get(pid, manifest.enabled_by_default)
             if enabled:
@@ -356,6 +391,7 @@ class PluginManager:
     def unload_plugin(self, plugin_id: str) -> bool:
         plugin = self.plugins.get(plugin_id)
         if not plugin:
+            self.lifecycle.set(pid, "failed")
             return False
 
         try:
@@ -368,11 +404,13 @@ class PluginManager:
         self.context.unregister_services_by_owner(plugin_id)
         self.event_bus.unsubscribe_owner(plugin_id)
         self.plugins.pop(plugin_id, None)
-        return True
+        self.lifecycle.set(pid, "running")
+            return True
 
     def enable_plugin(self, plugin_id: str) -> bool:
         manifest = self.manifests.get(plugin_id)
         if not manifest:
+            self.lifecycle.set(pid, "failed")
             return False
         self.plugin_state[plugin_id] = True
         self._save_state()
@@ -388,7 +426,8 @@ class PluginManager:
         self.unload_plugin(plugin_id)
         if was_enabled:
             return self.enable_plugin(plugin_id)
-        return True
+        self.lifecycle.set(pid, "running")
+            return True
 
     def get_registered_routes(self):
         return list(self.context.routes)

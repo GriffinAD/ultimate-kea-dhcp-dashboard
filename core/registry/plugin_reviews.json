@@ -1,0 +1,8 @@
+{
+  "admin": {
+    "review_state": "core",
+    "approved_by": "system",
+    "approved_at": "2026-04-18T22:00:00Z",
+    "notes": "Core governance plugin"
+  }
+}
