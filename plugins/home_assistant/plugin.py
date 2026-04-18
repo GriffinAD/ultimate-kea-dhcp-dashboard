@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 import time
 
-import requestsfrom core.outbound import OutboundClient
+import requests
+from core.outbound import OutboundClient
 from core.plugin_api import DashboardPlugin, PluginEvent
 
 
