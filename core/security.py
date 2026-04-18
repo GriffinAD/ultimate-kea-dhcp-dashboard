@@ -156,3 +156,6 @@ class SecurityManager:
             raise PermissionError(
                 f"{plugin_id} trust level {trust} insufficient for {permission}"
             )
+
+        if not self.policy.is_permission_allowed(plugin_id, permission):
+            raise PermissionError(f"{plugin_id} blocked by policy for permission: {permission}")

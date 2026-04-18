@@ -61,7 +61,9 @@ class PluginContext:
         self.cards: List[DashboardCard] = []
         self._current_plugin: Optional[str] = None
         self._current_manifest_obj: Optional[PluginManifestV1] = None
+        self._plugin_manifests: Dict[str, PluginManifestV1] = {}
         self.security = SecurityManager(self.root_dir, config)
+        self.audit = None
 
     @property
     def config(self) -> dict:
@@ -72,6 +74,28 @@ class PluginContext:
 
     def set_current_manifest(self, manifest: Optional[PluginManifestV1]) -> None:
         self._current_manifest_obj = manifest
+
+    def bind_plugin_manifest(self, plugin_id: str, manifest: PluginManifestV1) -> None:
+        self._plugin_manifests[plugin_id] = manifest
+
+    def _manifest_for(self, plugin_id: Optional[str]):
+        if plugin_id is None:
+            return self._current_manifest_obj
+        return self._plugin_manifests.get(plugin_id, self._current_manifest_obj)
+
+    def _wrap_with_plugin_context(self, plugin_id: Optional[str], manifest: Optional[PluginManifestV1], fn):
+        def wrapped(*args, **kwargs):
+            prev_plugin = self._current_plugin
+            prev_manifest = self._current_manifest_obj
+            self._current_plugin = plugin_id
+            self._current_manifest_obj = manifest
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self._current_plugin = prev_plugin
+                self._current_manifest_obj = prev_manifest
+        return wrapped
+
 
     def require_permission(self, permission: str):
         manifest = self._current_manifest_obj
@@ -139,6 +163,7 @@ class PluginContext:
     def register_route(self, path: str, handler: Callable[..., Any], methods=None) -> None:
         manifest = self._current_manifest_obj
         methods = list(methods or ["GET"])
+        plugin_id = self._current_plugin
         if manifest is None:
             raise RuntimeError("No current manifest bound during route registration")
 
@@ -150,12 +175,14 @@ class PluginContext:
                 f"{manifest.id} attempted undeclared route registration: {path} {methods}"
             )
 
+        wrapped = self._wrap_with_plugin_context(plugin_id, manifest, handler)
         self.routes.append(
-            RouteRegistration(path=path, methods=methods, handler=handler, plugin_id=self._current_plugin)
+            RouteRegistration(path=path, methods=methods, handler=wrapped, plugin_id=plugin_id)
         )
 
     def register_dashboard_card(self, card_id: str, title: str, render=None, order: int = 100) -> None:
         manifest = self._current_manifest_obj
+        plugin_id = self._current_plugin
         if manifest is None:
             raise RuntimeError("No current manifest bound during card registration")
 
@@ -166,12 +193,14 @@ class PluginContext:
                 f"{card_id} / {title} / {order}"
             )
 
+        wrapped_render = self._wrap_with_plugin_context(plugin_id, manifest, render) if render else None
         self.cards.append(
-            DashboardCard(id=card_id, title=title, render=render, order=order, plugin_id=self._current_plugin)
+            DashboardCard(id=card_id, title=title, render=wrapped_render, order=order, plugin_id=plugin_id)
         )
 
     def subscribe(self, event_type: str, handler: Callable[[PluginEvent], None]) -> None:
         manifest = self._current_manifest_obj
+        plugin_id = self._current_plugin
         if manifest is None:
             raise RuntimeError("No current manifest bound during event subscription")
 
@@ -186,10 +215,11 @@ class PluginContext:
                 f"{manifest.id} attempted undeclared event subscription: {event_type}"
             )
 
-        self.event_bus.subscribe(event_type, handler, owner=self._current_plugin)
+        wrapped = self._wrap_with_plugin_context(plugin_id, manifest, handler)
+        self.event_bus.subscribe(event_type, wrapped, owner=plugin_id)
 
     def emit(self, event_type: str, payload: dict | None = None, severity: str = "info") -> None:
-        manifest = self._current_manifest_obj
+        manifest = self._manifest_for(self._current_plugin)
         if manifest is not None:
             declared = set(manifest.contributes.produces_events)
             if event_type not in declared:
@@ -234,6 +264,12 @@ class PluginManager:
         self.logger = logging.getLogger("ukd.plugins")
         self.state_file = self.plugins_dir / ".state.json"
         self.plugin_state = self._load_state()
+        self.audit = AuditLogger(self.root_dir)
+        self.context.audit = self.audit
+        self.review_registry = ReviewRegistry(self.root_dir)
+        self.approval_registry = ApprovalRegistry(self.root_dir)
+        self.quarantine_registry = QuarantineRegistry(self.root_dir)
+        self.lifecycle = LifecycleRegistry()
 
     def _load_state(self) -> Dict[str, bool]:
         try:
@@ -255,11 +291,16 @@ class PluginManager:
                     self.logger.warning("Manifest %s: %s", manifest.id, warning)
                 errors = validate_manifest(manifest)
                 errors.extend(self.context.security.validate_permissions(manifest.id, manifest))
+                review = self.review_registry.get(manifest.id)
+                review_state = review.get("review_state", "unapproved")
+                if not self.context.security.policy.is_review_state_allowed(review_state):
+                    errors.append(f"review state {review_state} not allowed in runtime mode")
                 if errors:
                     self.blocked[manifest.id] = "; ".join(errors)
                     self.logger.warning("Blocked plugin %s: %s", manifest.id, self.blocked[manifest.id])
                     continue
                 manifests[manifest.id] = manifest
+                self.lifecycle.set(manifest.id, "validated")
             except Exception:
                 self.logger.exception("Failed to parse %s", manifest_path)
         self.manifests = manifests
@@ -324,6 +365,7 @@ class PluginManager:
             cls = self._load_module(manifest)
             plugin = cls()
             plugin.manifest = manifest
+            self.context.bind_plugin_manifest(pid, manifest)
 
             self.context.set_current_plugin(pid)
             self.context.set_current_manifest(manifest)
@@ -365,6 +407,10 @@ class PluginManager:
             return
 
         for pid in load_order:
+            if self.quarantine_registry.is_quarantined(pid):
+                self.blocked[pid] = "quarantined"
+                self.lifecycle.set(pid, "quarantined")
+                continue
             if self.quarantine.is_quarantined(pid):
                 self.blocked[pid] = "quarantined"
                 continue
@@ -465,5 +511,6 @@ class PluginManager:
                 "permissions": manifest.permissions,
                 "blocked": self.blocked.get(manifest.id),
                 "health": health,
+                "lifecycle": self.lifecycle.get(manifest.id),
             })
         return descriptions

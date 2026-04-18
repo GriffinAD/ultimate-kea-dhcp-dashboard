@@ -8,6 +8,7 @@ from core.plugin_api import DashboardPlugin, PluginEvent
 class Plugin(DashboardPlugin):
     def setup(self, context):
         super().setup(context)
+        self.outbound = OutboundClient(context)
 
         cfg = context.get_plugin_config("home_assistant")
 
