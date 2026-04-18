@@ -5,7 +5,7 @@ async function renderPlugins(container) {
   container.innerHTML = `<h2>Plugins</h2><div id="plugin-list">Loading...</div>`;
 
   try {
-    const res = await fetch('/api/admin/plugins');
+    const res = await fetch('/api/plugins/admin/plugins');
     const plugins = await res.json();
     const list = document.getElementById('plugin-list');
 
@@ -21,7 +21,7 @@ async function renderPlugins(container) {
     `).join('');
 
     window.restartPlugin = async (plugin) => {
-      await fetch('/api/admin/plugins/restart', {
+      await fetch('/api/plugins/admin/plugins/restart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plugin })
@@ -31,8 +31,8 @@ async function renderPlugins(container) {
 
     window.togglePlugin = async (plugin, enabled) => {
       const url = enabled
-        ? '/api/admin/plugins/disable'
-        : '/api/admin/plugins/enable';
+        ? '/api/plugins/admin/plugins/disable'
+        : '/api/plugins/admin/plugins/enable';
 
       await fetch(url, {
         method: 'POST',
@@ -52,7 +52,7 @@ async function renderMarketplace(container) {
   container.innerHTML = `<h2>Marketplace</h2><div id="marketplace-list">Loading...</div>`;
 
   try {
-    const res = await fetch('/api/marketplace/plugins');
+    const res = await fetch('/api/plugins/admin/marketplace/plugins');
     const plugins = await res.json();
     const list = document.getElementById('marketplace-list');
 
@@ -68,7 +68,7 @@ async function renderMarketplace(container) {
     `).join('');
 
     window.installPlugin = async (plugin) => {
-      await fetch('/api/marketplace/install', {
+      await fetch('/api/plugins/admin/marketplace/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plugin })

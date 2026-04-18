@@ -1,6 +1,6 @@
 export async function renderAlerts(container) {
   async function load() {
-    const alerts = await fetch("/api/admin/alerts").then(r => r.json());
+    const alerts = await fetch("/api/plugins/admin/alerts").then(r => r.json());
 
     container.innerHTML = `
       <h2>Alerts</h2>

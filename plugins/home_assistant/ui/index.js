@@ -5,7 +5,7 @@ export async function render(container) {
   `;
 
   try {
-    const res = await fetch('/api/plugins/home-assistant/status');
+    const res = await fetch('/api/plugins/home_assistant/status');
     const data = await res.json();
     document.getElementById('ha-root').innerHTML = `
       <div class="grid">
@@ -25,7 +25,7 @@ export async function render(container) {
     `;
 
     window.testHomeAssistant = async () => {
-      await fetch('/api/plugins/home-assistant/test');
+      await fetch('/api/plugins/home_assistant/test');
       render(container);
     };
   } catch (e) {

@@ -1143,10 +1143,10 @@ class KeaHandler(http.server.SimpleHTTPRequestHandler):
             or parsed.path.startswith("/data/")
         ):
             rel_path = parsed.path.lstrip("/")
-            safe_root = str(SCRIPT_DIR)
+            safe_root = os.path.realpath(str(SCRIPT_DIR))
             full_path = os.path.realpath(os.path.join(safe_root, rel_path))
 
-            if not full_path.startswith(safe_root + os.sep):
+            if full_path != safe_root and not full_path.startswith(safe_root + os.sep):
                 self.send_response(403)
                 self.end_headers()
             elif os.path.isfile(full_path):

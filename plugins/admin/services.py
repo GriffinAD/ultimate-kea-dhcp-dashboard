@@ -2,11 +2,17 @@ from core.marketplace import Marketplace
 
 
 def get_health(context):
-    return context.plugin_system.health.all()
+    pm = context.get_service("plugin_manager")
+    if not pm or not getattr(pm, "health", None):
+        return {}
+    return pm.health.all()
 
 
 def get_alerts(context):
-    return context.plugin_system.alerts.list()
+    pm = context.get_service("plugin_manager")
+    if not pm or not getattr(pm, "alerts", None):
+        return []
+    return pm.alerts.list()
 
 
 def list_plugins(context):

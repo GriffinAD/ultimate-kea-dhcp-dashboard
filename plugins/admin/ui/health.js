@@ -1,6 +1,6 @@
 export async function renderHealth(container) {
   async function load() {
-    const data = await fetch("/api/admin/health").then(r => r.json());
+    const data = await fetch("/api/plugins/admin/health").then(r => r.json());
 
     container.innerHTML = `
       <h2>Plugin Health</h2>

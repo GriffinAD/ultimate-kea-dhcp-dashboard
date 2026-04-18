@@ -90,7 +90,6 @@ class Plugin(DashboardPlugin):
             self.cooldown = int(payload.get("cooldown"))
 
         self._persist_rules()
-        context.subscribe("*", self._handle_event)
         self.set_healthy("Rules saved", rules=len(self.rules))
         return self.get_rules()
 

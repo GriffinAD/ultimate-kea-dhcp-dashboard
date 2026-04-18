@@ -162,7 +162,7 @@ class Plugin(DashboardPlugin):
         for attempt in range(1, self.retry_count + 1):
             try:
                 self.context.require_permission("network.outbound")
-                response = self.outbound.post_json(self.manifest.id, destination, json=payload, timeout=3)
+                response = self.outbound.post_json(self.manifest.id, destination, payload, timeout=3)
                 response.raise_for_status()
                 return {
                     "status": response.status_code,
